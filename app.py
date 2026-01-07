@@ -5,7 +5,7 @@ from io import BytesIO
 import time
 
 # --- 1. CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="NativeFlow 2.0", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="NativeFlow 2.0 Turbo", page_icon="🛡️", layout="wide")
 
 st.markdown("""
 <style>
@@ -21,11 +21,10 @@ with st.sidebar:
         api_key = st.secrets["GOOGLE_API_KEY"]
         genai.configure(api_key=api_key)
         
-        # --- CAMBIO CRÍTICO: USAMOS UN MODELO DE TU LISTA ---
-        # Usamos gemini-2.0-flash que es estable y rápido.
+        # MODELO: Usamos Gemini 2.0 Flash (Ideal para contextos largos)
         MODEL_NAME = 'gemini-2.0-flash' 
         model = genai.GenerativeModel(MODEL_NAME)
-        st.success(f"✅ Conectado a {MODEL_NAME}")
+        st.success(f"✅ Motor: {MODEL_NAME}")
         
     except Exception as e:
         st.error(f"❌ Error API: {e}")
@@ -49,14 +48,14 @@ with st.sidebar:
         tone_prompt = "Tone: Vivid, magical, descriptive."
         temp = 0.8
 
-# --- 3. FUNCIONES ROBUSTAS (BACKOFF & BATCHING) ---
+# --- 3. FUNCIONES ROBUSTAS ---
 
 def call_api_with_retry(prompt, temperature=0.7):
     """
-    Intenta llamar a la API. Si da error 429 (Límite), espera y reintenta.
+    Intenta llamar a la API. Si da error 429, espera exponencialmente.
     """
-    max_retries = 8 # Aumentamos intentos por seguridad
-    wait_time = 15  # Empezamos con 15 segundos
+    max_retries = 10 
+    wait_time = 20  # Espera inicial más larga para asegurar que se limpie el cupo
     
     for attempt in range(max_retries):
         try:
@@ -64,111 +63,124 @@ def call_api_with_retry(prompt, temperature=0.7):
             return response.text.strip()
         except Exception as e:
             error_str = str(e)
-            # Manejamos Error de Cuota (429) o Sobrecarga (503)
+            # Manejo de límites (429) o sobrecarga (503)
             if "429" in error_str or "quota" in error_str.lower() or "503" in error_str:
-                st.toast(f"⏳ Límite de Google alcanzado. Pausando {wait_time}s...", icon="⚠️")
+                st.toast(f"⏳ Límite alcanzado ({attempt+1}/{max_retries}). Pausando {wait_time}s...", icon="✋")
                 time.sleep(wait_time)
-                wait_time *= 1.5 # Aumentamos el tiempo de espera progresivamente
+                wait_time += 10 # Incremento lineal para no esperar eternamente
             elif "404" in error_str:
-                return f"[ERROR CRÍTICO: El modelo {MODEL_NAME} no existe en tu cuenta. Revisa la lista.]"
+                return f"[ERROR CRÍTICO: Modelo no encontrado. Verifica el nombre en el sidebar.]"
             else:
                 return f"[ERROR NO RECUPERABLE: {error_str}]"
-    return "[ERROR: Demasiados reintentos, Google está saturado hoy]"
+    return "[ERROR: Google está saturado, intenta más tarde]"
 
 def process_batch(text_batch, mode, tone_instr, temp):
     """
-    Procesa un bloque grande de texto.
+    Procesa bloques gigantes de texto.
     """
     if not text_batch.strip(): return ""
 
     if mode == "audit":
         prompt = f"""
-        Analyze this text batch for:
-        1. Whirlwind = HE/HIM (Flag 'she').
-        2. Corporate jargon ('outsourcing').
-        3. Clumsy phrasing ("The X of Y").
+        Analyze this text batch. It contains multiple paragraphs from a book.
         
-        OUTPUT FORMAT:
-        List specific issues found per paragraph snippet. If clean, say "CLEAN".
+        TASKS:
+        1. Whirlwind Gender: Must be HE/HIM. Flag usages of 'she/her'.
+        2. Corporate Jargon: Flag 'outsourcing'.
+        3. Phrasing: Flag "The X of Y" (e.g. "The breathing of the balloon").
         
-        Text: "{text_batch}"
+        OUTPUT:
+        List issues found concisely. If the whole batch is fine, output "CLEAN".
+        
+        Text Batch:
+        "{text_batch}"
         """
     else: # Rewrite mode
         prompt = f"""
-        Rewrite this text batch to be Native US English.
-        Specs: {tone_instr}
+        You are editing a children's book (US English).
+        Rewrite the following text batch provided below.
         
-        RULES:
+        SPECS: {tone_instr}
+        
+        CRITICAL RULES:
         1. Whirlwind is ALWAYS Male (he/him).
-        2. Replace 'outsourcing' with 'naming'.
+        2. Replace 'outsourcing' with 'naming' or 'externalizing'.
         3. Fix "The X of Y" -> "X Y" (e.g. Balloon Breathing).
-        4. Maintain roughly the same paragraph structure.
+        4. Maintain the paragraphs structure.
         
-        Text: "{text_batch}"
+        Text Batch to Rewrite:
+        "{text_batch}"
         """
     
     return call_api_with_retry(prompt, temp)
 
 # --- 4. INTERFAZ ---
-st.title("🛡️ NativeFlow: Procesamiento por Lotes")
-st.info(f"Usando motor: **{MODEL_NAME}** (Detectado en tu cuenta)")
+st.title("🛡️ NativeFlow: Modo Lotes Gigantes")
+st.info(f"Estrategia: Enviar bloques grandes para reducir llamadas a la API.")
 
 uploaded_file = st.file_uploader("Sube tu manuscrito (.docx)", type=["docx"])
 
 if uploaded_file:
     doc = Document(uploaded_file)
-    # Convertimos iterador a lista para saber total real
-    all_paragraphs = [p.text for p in doc.paragraphs if len(p.text.strip()) > 5]
+    # Filtramos párrafos vacíos
+    all_paragraphs = [p.text for p in doc.paragraphs if len(p.text.strip()) > 2]
     total_paras = len(all_paragraphs)
     
-    tab1, tab2 = st.tabs(["📊 Auditoría (Lotes)", "🚀 Corrección (Lotes)"])
+    st.write(f"📖 Documento cargado: **{total_paras} párrafos detectados**.")
+    
+    tab1, tab2 = st.tabs(["📊 Auditoría", "🚀 Corrección"])
 
     # --- PESTAÑA 1: AUDITORÍA ---
     with tab1:
-        if st.button("🔍 Auditar por Lotes"):
+        if st.button("🔍 Auditar"):
             report_doc = Document()
-            report_doc.add_heading('Reporte de Auditoría (Lotes)', 0)
+            report_doc.add_heading('Reporte de Auditoría', 0)
             
             p_bar = st.progress(0)
             status = st.empty()
             
-            # BATCHING MÁS GRANDE PARA GEMINI 2.0 (Tiene ventana de contexto enorme)
-            BATCH_SIZE = 2500 # Aprox 1.5 páginas por llamada
+            # --- SUPER BATCHING ---
+            # Aumentamos a 8,000 caracteres (aprox 3-4 páginas)
+            # Gemini 2.0 maneja esto sin sudar.
+            BATCH_SIZE = 8000 
             current_batch = ""
             
             for i, text in enumerate(all_paragraphs):
-                status.caption(f"Leyendo párrafo {i+1}/{total_paras}...")
                 current_batch += text + "\n\n"
                 
-                # Si el lote está lleno o es el final
+                # Procesar si el lote es grande o es el final
                 if len(current_batch) > BATCH_SIZE or i == total_paras - 1:
-                    status.text(f"📡 Analizando bloque grande... ({int((i/total_paras)*100)}%)")
+                    status.text(f"📡 Analizando bloque... ({int((i/total_paras)*100)}%)")
                     
-                    # Llamada
                     result = process_batch(current_batch, "audit", "", 0)
                     
                     if result and "CLEAN" not in result and "ERROR" not in result:
-                        report_doc.add_paragraph(f"--- REPORTE BLOQUE {i} ---")
+                        report_doc.add_paragraph(f"--- REPORTE BLOQUE HASTA PÁRRAFO {i} ---")
                         report_doc.add_paragraph(result)
                     elif "ERROR" in result:
                         report_doc.add_paragraph(f"⚠️ {result}")
                     
                     current_batch = "" 
                     p_bar.progress((i+1)/total_paras)
+                    
+                    # PAUSA DE SEGURIDAD PROACTIVA
+                    # Esperamos 5 segundos SIEMPRE, para no molestar a Google
+                    time.sleep(5)
             
             status.success("✅ Auditoría Completada")
             bio = BytesIO()
             report_doc.save(bio)
-            st.download_button("⬇️ Descargar Reporte", bio.getvalue(), "Reporte_Lotes.docx")
+            st.download_button("⬇️ Descargar Reporte", bio.getvalue(), "Reporte_Auditoria.docx")
 
     # --- PESTAÑA 2: CORRECCIÓN ---
     with tab2:
-        if st.button("🚀 Crear Libro Final (Lotes)"):
+        if st.button("🚀 Crear Libro Final"):
             final_doc = Document()
             p_bar = st.progress(0)
             status = st.empty()
             
-            BATCH_SIZE = 2500 
+            # Mismo Batching Gigante
+            BATCH_SIZE = 8000 
             current_batch = ""
             
             for i, text in enumerate(all_paragraphs):
@@ -179,14 +191,19 @@ if uploaded_file:
                     
                     new_text_block = process_batch(current_batch, "rewrite", tone_prompt, temp)
                     
-                    # Añadir al doc
+                    # Limpieza básica por si la IA añade markdown
+                    new_text_block = new_text_block.replace("```", "")
+                    
                     final_doc.add_paragraph(new_text_block)
-                    final_doc.add_paragraph("-" * 10) # Separador
+                    final_doc.add_paragraph("-" * 20) # Separador visual entre bloques
                     
                     current_batch = ""
                     p_bar.progress((i+1)/total_paras)
+                    
+                    # PAUSA DE SEGURIDAD (Enfriamiento)
+                    time.sleep(5)
             
             status.success("✅ ¡Libro Completado!")
             bio_f = BytesIO()
             final_doc.save(bio_f)
-            st.download_button("⬇️ Descargar Libro", bio_f.getvalue(), "Libro_Final_Lotes.docx")
+            st.download_button("⬇️ Descargar Libro", bio_f.getvalue(), "Libro_Final.docx")
