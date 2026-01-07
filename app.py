@@ -1,157 +1,167 @@
 import streamlit as st
 from docx import Document
+from docx.shared import RGBColor
 import google.generativeai as genai
 from io import BytesIO
 import time
 
-# --- 1. CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="NativeFlow Pro", page_icon="✍️", layout="wide")
+# --- 1. CONFIGURACIÓN ---
+st.set_page_config(page_title="NativeFlow Auditor", page_icon="🕵️", layout="wide")
 
-# CSS para mejorar la comparación visual
+st.title("🕵️ NativeFlow: Auditoría y Corrección")
 st.markdown("""
-<style>
-    .original-text { color: #856404; background-color: #fff3cd; padding: 10px; border-radius: 5px; border-left: 5px solid #ffeeba; }
-    .edited-text { color: #155724; background-color: #d4edda; padding: 10px; border-radius: 5px; border-left: 5px solid #c3e6cb; }
-    .stProgress > div > div > div > div { background-color: #4CAF50; }
-</style>
-""", unsafe_allow_html=True)
+Este sistema funciona en dos pasos para manejar documentos grandes sin saturar tu pantalla:
+1.  **Auditoría:** Genera un reporte detallado de qué se va a cambiar.
+2.  **Corrección:** Genera el manuscrito final limpio.
+""")
 
-# --- 2. SIDEBAR: CONFIGURACIÓN Y TONOS ---
-with st.sidebar:
-    st.header("⚙️ Panel de Control")
-    
-    # API Key Handling
-    try:
-        api_key = st.secrets["GOOGLE_API_KEY"]
-        genai.configure(api_key=api_key)
-        st.success("✅ API Conectada")
-    except:
-        st.error("❌ Falta API Key en secrets")
-        st.stop()
-
-    st.divider()
-    
-    # SELECCIÓN DE TONO
-    st.subheader("🎨 Estilo de Edición")
-    tone_option = st.selectbox(
-        "Elige el objetivo del texto:",
-        options=["Warm & Kid-Friendly (Recomendado)", "Grammar Polish Only (Conservador)", "Magical Storyteller (Creativo)"],
-        index=0
-    )
-    
-    # Definir instrucciones según la opción
-    if tone_option == "Warm & Kid-Friendly (Recomendado)":
-        tone_instruction = "Tone: Warm, validating, empathetic. Simplify complex words for kids (6-10 years old)."
-        temp_setting = 0.7 # Creatividad balanceada
-    elif tone_option == "Grammar Polish Only (Conservador)":
-        tone_instruction = "Tone: Neutral. KEEP the author's original style/voice strictly. Only fix grammar, syntax errors, and unnatural phrasing."
-        temp_setting = 0.3 # Baja creatividad, alta fidelidad
-    else: # Magical
-        tone_instruction = "Tone: Whimsical, magical, and vivid. Use descriptive verbs and sensory language to make the story come alive."
-        temp_setting = 0.9 # Alta creatividad
-
-    st.info(f"Modo seleccionado: **{tone_option}**")
-
-# --- 3. LÓGICA DE IA ---
-def rewrite_paragraph_pro(text, tone_instr, temp):
-    if len(text.strip()) < 15: return text
-
-    # Modelo con fallback
+# --- 2. API SETUP ---
+try:
+    api_key = st.secrets["GOOGLE_API_KEY"]
+    genai.configure(api_key=api_key)
+    # Intentamos usar el modelo 2.5 Flash por velocidad
     try:
         model = genai.GenerativeModel('gemini-2.5-flash')
     except:
         model = genai.GenerativeModel('gemini-1.5-flash')
+except Exception as e:
+    st.error(f"Error de API: {e}")
+    st.stop()
+
+# --- 3. FUNCIONES INTELIGENTES ---
+
+def audit_paragraph(text):
+    """
+    No reescribe, solo detecta problemas según las reglas.
+    Devuelve: String con el problema detectado o None si está limpio.
+    """
+    if len(text.strip()) < 20: return None
 
     prompt = f"""
-    You are an expert US English book editor.
-    
-    **TASK:** Rewrite the text below according to these specifications:
-    {tone_instr}
+    You are a strict book editor. Analyze the text below for specific issues based on these rules:
+    1. **Whirlwind Gender:** Must be HE/HIM. Detect if 'she/her' is used.
+    2. **Phrasing:** Detect clumsy "The X of Y" structures (e.g., "The breathing of the balloon").
+    3. **Jargon:** Detect corporate words like "outsourcing".
+    4. **Syntax:** Detect overly complex/Spanish-like sentence structures.
 
-    **MANDATORY RULES (Always active):**
-    1. **Consistency:** Character 'Whirlwind' is ALWAYS Male (he/him).
-    2. **Anti-Jargon:** Replace 'outsourcing' with 'naming' or 'externalizing'.
-    3. **Syntax:** Fix Spanish sentence structures to sound Native US.
-    4. **Output:** Return ONLY the rewritten text.
+    If issues are found, strictly output a short description of the error and the fix (e.g., "Found 'outsourcing', suggest 'naming'").
+    If NO issues are found, output exact word: "CLEAN".
 
-    **Original Text:**
-    "{text}"
+    Text: "{text}"
     """
-    
     try:
-        response = model.generate_content(prompt, generation_config={"temperature": temp})
+        response = model.generate_content(prompt)
+        result = response.text.strip()
+        if "CLEAN" in result:
+            return None
+        return result
+    except:
+        return None
+
+def rewrite_paragraph_silent(text):
+    """Reescritura directa para el archivo final."""
+    if len(text.strip()) < 15: return text
+    
+    prompt = f"""
+    Rewrite this text to be native US English, warm tone. 
+    Rules: Whirlwind=Male, No 'outsourcing', No 'The X of Y' phrasing.
+    Text: "{text}"
+    """
+    try:
+        response = model.generate_content(prompt)
         return response.text.strip()
-    except Exception:
+    except:
         return text
 
-# --- 4. INTERFAZ PRINCIPAL ---
-st.title("✍️ NativeFlow Pro: Edición Inteligente")
-st.markdown("Analiza, corrige y adapta el tono de tu manuscrito en tiempo real.")
-
-uploaded_file = st.file_uploader("Sube tu manuscrito (.docx)", type=["docx"])
+# --- 4. INTERFAZ POR PESTAÑAS ---
+uploaded_file = st.file_uploader("📂 Sube tu manuscrito (.docx)", type=["docx"])
 
 if uploaded_file:
-    if st.button("🚀 INICIAR EDICIÓN"):
-        doc = Document(uploaded_file)
-        new_doc = Document()
-        
-        # Contenedores para el reporte
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        # Crear pestañas para organizar la vista
-        tab1, tab2 = st.tabs(["👁️ Vista en Vivo (Live)", "📄 Documento Final"])
-        
-        with tab1:
-            st.write("### 🔍 Comparativa Antes vs. Después")
-            # Un contenedor que se irá llenando (o scrollable)
-            history_container = st.container()
+    doc = Document(uploaded_file)
+    total_paragraphs = len(doc.paragraphs)
+    
+    # Creamos dos pestañas para separar las acciones
+    tab_audit, tab_fix = st.tabs(["📊 Paso 1: Generar Reporte", "✨ Paso 2: Crear Libro Final"])
 
-        total_paragraphs = len(doc.paragraphs)
+    # --- PESTAÑA 1: AUDITORÍA ---
+    with tab_audit:
+        st.header("Generar Reporte de Diagnóstico")
+        st.info("Esto leerá el libro y creará un archivo Word listando solo los párrafos que necesitan cambios.")
         
-        # --- BUCLE DE PROCESAMIENTO ---
-        for i, para in enumerate(doc.paragraphs):
-            original = para.text
+        if st.button("🔍 Analizar Documento"):
+            report_doc = Document()
+            report_doc.add_heading('Reporte de Auditoría NativeFlow', 0)
             
-            status_text.caption(f"Editando párrafo {i+1} de {total_paragraphs}...")
+            # Crear tabla en el Word
+            table = report_doc.add_table(rows=1, cols=2)
+            table.style = 'Table Grid'
+            hdr_cells = table.rows[0].cells
+            hdr_cells[0].text = 'Párrafo Original'
+            hdr_cells[1].text = 'Problema Detectado / Sugerencia'
             
-            # Procesar
-            edited = rewrite_paragraph_pro(original, tone_instruction, temp_setting)
+            prog_bar = st.progress(0)
+            status = st.empty()
+            issues_count = 0
             
-            # Guardar
-            new_para = new_doc.add_paragraph(edited)
-            new_para.style = para.style
-            
-            # --- MOSTRAR CAMBIOS EN VIVO ---
-            # Solo mostramos si hubo cambios significativos y el texto no es vacío
-            if len(original) > 40:
-                with history_container:
-                    # Usamos columnas y HTML personalizado para que se vea bonito
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.markdown(f'<div class="original-text"><b>Original:</b><br>{original}</div>', unsafe_allow_html=True)
-                    with c2:
-                        # Si quedó igual, mostramos aviso, si cambió, mostramos el nuevo
-                        if original.strip() == edited.strip():
-                            st.markdown(f'<div class="edited-text" style="background-color:#f8f9fa; border-color:#ccc;"><i>Sin cambios necesarios</i></div>', unsafe_allow_html=True)
-                        else:
-                            st.markdown(f'<div class="edited-text"><b>✨ NativeFlow:</b><br>{edited}</div>', unsafe_allow_html=True)
-                    st.write("---") # Separador
-            
-            progress_bar.progress((i + 1) / total_paragraphs)
-            time.sleep(0.1) # Pequeña pausa para no saturar UI
+            for i, para in enumerate(doc.paragraphs):
+                status.text(f"Analizando párrafo {i+1}/{total_paragraphs}...")
+                
+                # Llamada a la IA (Modo Auditoría)
+                issue = audit_paragraph(para.text)
+                
+                if issue:
+                    issues_count += 1
+                    row_cells = table.add_row().cells
+                    row_cells[0].text = para.text[:200] + "..." # Resumen del original
+                    row_cells[1].text = issue
+                
+                prog_bar.progress((i + 1) / total_paragraphs)
+                # time.sleep(0.1) # Pausa opcional si la API se queja
 
-        status_text.success("✅ ¡Edición Completada!")
-        
-        # --- DESCARGA ---
-        bio = BytesIO()
-        new_doc.save(bio)
-        
-        with tab2:
-            st.success("Tu documento está listo.")
+            status.success(f"✅ Análisis completado. Se detectaron {issues_count} posibles mejoras.")
+            
+            # Botón de descarga del reporte
+            bio_audit = BytesIO()
+            report_doc.save(bio_audit)
+            
             st.download_button(
-                label="⬇️ Descargar DOCX Corregido",
-                data=bio.getvalue(),
-                file_name=f"NativeFlow_{tone_option.split()[0]}_{uploaded_file.name}",
+                label="⬇️ Descargar Reporte de Auditoría (.docx)",
+                data=bio_audit.getvalue(),
+                file_name="Reporte_Cambios.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+
+    # --- PESTAÑA 2: CORRECCIÓN FINAL ---
+    with tab_fix:
+        st.header("Generar Manuscrito Final")
+        st.warning("Este proceso aplicará todas las correcciones de gramática y tono directamente.")
+        
+        if st.button("🚀 Procesar y Descargar Libro"):
+            final_doc = Document()
+            prog_bar_fix = st.progress(0)
+            status_fix = st.empty()
+            
+            for i, para in enumerate(doc.paragraphs):
+                status_fix.text(f"Corrigiendo párrafo {i+1}/{total_paragraphs}...")
+                
+                # Llamada a la IA (Modo Reescritura)
+                new_text = rewrite_paragraph_silent(para.text)
+                
+                # Guardar manteniendo estilo (título, normal, etc)
+                new_para = final_doc.add_paragraph(new_text)
+                new_para.style = para.style
+                
+                prog_bar_fix.progress((i + 1) / total_paragraphs)
+                # time.sleep(0.2) # Pausa técnica
+
+            status_fix.success("✅ ¡Libro terminado!")
+            
+            bio_final = BytesIO()
+            final_doc.save(bio_final)
+            
+            st.download_button(
+                label="⬇️ Descargar Libro Corregido (.docx)",
+                data=bio_final.getvalue(),
+                file_name=f"NativeFlow_Final_{uploaded_file.name}",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
