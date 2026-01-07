@@ -25,12 +25,14 @@ with st.sidebar:
 
     # 2. SELECTOR DE MODELO
     try:
-        # Intentamos forzar el modelo más capaz para la auditoría
-        model = genai.GenerativeModel('gemini-1.5-pro') 
-        st.info("🧠 Usando Gemini 1.5 PRO (Más analítico)")
-    except:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        st.info("⚡ Usando Gemini 1.5 FLASH (Más rápido)")
+        # Usamos FLASH porque es el más estable, rápido y barato para libros largos.
+        # Además, 'gemini-1.5-flash' es el nombre estándar que rara vez falla.
+        model_name = 'gemini-1.5-flash'
+        model = genai.GenerativeModel(model_name)
+        st.success(f"✅ Conectado a {model_name}")
+    except Exception as e:
+        st.error(f"❌ Error al conectar con el modelo: {e}")
+        st.stop()
 
 # --- FUNCIONES ---
 
