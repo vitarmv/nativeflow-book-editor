@@ -5,7 +5,7 @@ from io import BytesIO
 import time
 
 # --- 1. CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="NativeFlow Robust", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="NativeFlow 2.0", page_icon="🛡️", layout="wide")
 
 st.markdown("""
 <style>
@@ -20,10 +20,13 @@ with st.sidebar:
     try:
         api_key = st.secrets["GOOGLE_API_KEY"]
         genai.configure(api_key=api_key)
-        # Usamos 1.5 Flash porque tiene límites más generosos que el 2.5 experimental
-        MODEL_NAME = 'gemini-1.5-flash' 
+        
+        # --- CAMBIO CRÍTICO: USAMOS UN MODELO DE TU LISTA ---
+        # Usamos gemini-2.0-flash que es estable y rápido.
+        MODEL_NAME = 'gemini-2.0-flash' 
         model = genai.GenerativeModel(MODEL_NAME)
-        st.success(f"✅ Conectado a {MODEL_NAME} (Modo Estable)")
+        st.success(f"✅ Conectado a {MODEL_NAME}")
+        
     except Exception as e:
         st.error(f"❌ Error API: {e}")
         st.stop()
@@ -52,8 +55,8 @@ def call_api_with_retry(prompt, temperature=0.7):
     """
     Intenta llamar a la API. Si da error 429 (Límite), espera y reintenta.
     """
-    max_retries = 5
-    wait_time = 10 # Segundos iniciales
+    max_retries = 8 # Aumentamos intentos por seguridad
+    wait_time = 15  # Empezamos con 15 segundos
     
     for attempt in range(max_retries):
         try:
@@ -61,17 +64,20 @@ def call_api_with_retry(prompt, temperature=0.7):
             return response.text.strip()
         except Exception as e:
             error_str = str(e)
-            if "429" in error_str or "quota" in error_str.lower():
-                st.toast(f"⏳ Límite alcanzado. Esperando {wait_time}s para reintentar...", icon="⚠️")
+            # Manejamos Error de Cuota (429) o Sobrecarga (503)
+            if "429" in error_str or "quota" in error_str.lower() or "503" in error_str:
+                st.toast(f"⏳ Límite de Google alcanzado. Pausando {wait_time}s...", icon="⚠️")
                 time.sleep(wait_time)
-                wait_time *= 2 # Espera exponencial (10s, 20s, 40s...)
+                wait_time *= 1.5 # Aumentamos el tiempo de espera progresivamente
+            elif "404" in error_str:
+                return f"[ERROR CRÍTICO: El modelo {MODEL_NAME} no existe en tu cuenta. Revisa la lista.]"
             else:
                 return f"[ERROR NO RECUPERABLE: {error_str}]"
-    return "[ERROR: Demasiados reintentos]"
+    return "[ERROR: Demasiados reintentos, Google está saturado hoy]"
 
 def process_batch(text_batch, mode, tone_instr, temp):
     """
-    Procesa un bloque grande de texto (varios párrafos juntos).
+    Procesa un bloque grande de texto.
     """
     if not text_batch.strip(): return ""
 
@@ -105,7 +111,7 @@ def process_batch(text_batch, mode, tone_instr, temp):
 
 # --- 4. INTERFAZ ---
 st.title("🛡️ NativeFlow: Procesamiento por Lotes")
-st.info("Esta versión agrupa párrafos para evitar el error 429 y procesar libros largos.")
+st.info(f"Usando motor: **{MODEL_NAME}** (Detectado en tu cuenta)")
 
 uploaded_file = st.file_uploader("Sube tu manuscrito (.docx)", type=["docx"])
 
@@ -126,26 +132,28 @@ if uploaded_file:
             p_bar = st.progress(0)
             status = st.empty()
             
-            # LÓGICA DE LOTES (BATCHING)
-            BATCH_SIZE = 1500 # Caracteres por llamada (aprox 1 página)
+            # BATCHING MÁS GRANDE PARA GEMINI 2.0 (Tiene ventana de contexto enorme)
+            BATCH_SIZE = 2500 # Aprox 1.5 páginas por llamada
             current_batch = ""
             
             for i, text in enumerate(all_paragraphs):
-                status.caption(f"Acumulando texto... ({i}/{total_paras})")
+                status.caption(f"Leyendo párrafo {i+1}/{total_paras}...")
                 current_batch += text + "\n\n"
                 
-                # Si el lote está lleno o es el último párrafo
+                # Si el lote está lleno o es el final
                 if len(current_batch) > BATCH_SIZE or i == total_paras - 1:
-                    status.text(f"📡 Enviando lote a la IA ({i}/{total_paras})...")
+                    status.text(f"📡 Analizando bloque grande... ({int((i/total_paras)*100)}%)")
                     
-                    # Llamada con reintento automático
+                    # Llamada
                     result = process_batch(current_batch, "audit", "", 0)
                     
-                    if result and "CLEAN" not in result:
-                        report_doc.add_paragraph(f"--- LOTE HASTA PÁRRAFO {i} ---")
+                    if result and "CLEAN" not in result and "ERROR" not in result:
+                        report_doc.add_paragraph(f"--- REPORTE BLOQUE {i} ---")
                         report_doc.add_paragraph(result)
+                    elif "ERROR" in result:
+                        report_doc.add_paragraph(f"⚠️ {result}")
                     
-                    current_batch = "" # Limpiar lote
+                    current_batch = "" 
                     p_bar.progress((i+1)/total_paras)
             
             status.success("✅ Auditoría Completada")
@@ -160,22 +168,20 @@ if uploaded_file:
             p_bar = st.progress(0)
             status = st.empty()
             
-            # LÓGICA DE LOTES PARA REESCRITURA
-            BATCH_SIZE = 1800 # Un poco más grande para aprovechar contexto
+            BATCH_SIZE = 2500 
             current_batch = ""
             
             for i, text in enumerate(all_paragraphs):
                 current_batch += text + "\n\n"
                 
                 if len(current_batch) > BATCH_SIZE or i == total_paras - 1:
-                    status.text(f"✍️ Reescribiendo página aprox {int(i/10)}...")
+                    status.text(f"✍️ Reescribiendo bloque... ({int((i/total_paras)*100)}%)")
                     
-                    # Llamada con reintento
                     new_text_block = process_batch(current_batch, "rewrite", tone_prompt, temp)
                     
-                    # Añadir el bloque reescrito al documento final
+                    # Añadir al doc
                     final_doc.add_paragraph(new_text_block)
-                    final_doc.add_paragraph("-" * 10) # Separador visual opcional
+                    final_doc.add_paragraph("-" * 10) # Separador
                     
                     current_batch = ""
                     p_bar.progress((i+1)/total_paras)
