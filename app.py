@@ -8,31 +8,57 @@ import time
 st.set_page_config(page_title="NativeFlow Debugger", page_icon="🛠️", layout="wide")
 
 # --- BARRA LATERAL (SETUP) ---
+# --- BARRA LATERAL (SETUP & DIAGNÓSTICO) ---
 with st.sidebar:
     st.header("🔧 Configuración")
     
-    # 1. CONEXIÓN API (Con validación visible)
+    # 1. CONEXIÓN API
     try:
         api_key = st.secrets["GOOGLE_API_KEY"]
         genai.configure(api_key=api_key)
-        # Probamos conexión obteniendo listado de modelos
-        m = genai.list_models()
-        st.success("✅ API Conectada y Validada")
+        st.success("✅ API Key detectada")
     except Exception as e:
-        st.error(f"❌ Error CRÍTICO de Conexión: {e}")
-        st.warning("Verifica tu archivo secrets.toml o la consola de Streamlit.")
+        st.error(f"❌ Error de Config: {e}")
         st.stop()
 
-    # 2. SELECTOR DE MODELO
+    st.divider()
+
+    # 2. ESCÁNER DE MODELOS (LA SOLUCIÓN AL 404)
+    st.subheader("🔍 Diagnóstico de Modelos")
+    st.info("Si tienes errores 404, usa este botón para ver los nombres reales disponibles para tu clave.")
+    
+    if st.button("Listar Mis Modelos"):
+        try:
+            st.write("Conectando con Google...")
+            available_models = []
+            for m in genai.list_models():
+                if 'generateContent' in m.supported_generation_methods:
+                    available_models.append(m.name)
+            
+            if available_models:
+                st.success("Modelos encontrados:")
+                # Mostramos el código limpio para copiar
+                st.code("\n".join(available_models))
+                st.caption("☝️ Copia uno de estos nombres (ej. 'models/gemini-pro') y úsalo abajo.")
+            else:
+                st.error("No se encontraron modelos generativos.")
+        except Exception as e:
+            st.error(f"Error listando modelos: {e}")
+
+    st.divider()
+
+    # 3. SELECTOR MANUAL DE MODELO
+    # Aquí pegas el nombre que encontraste arriba
+    model_name_input = st.text_input("Nombre del Modelo a usar:", value="gemini-1.5-flash")
+    
+    # Configuramos el modelo con el nombre que tú digas
     try:
-        # Usamos FLASH porque es el más estable, rápido y barato para libros largos.
-        # Además, 'gemini-1.5-flash' es el nombre estándar que rara vez falla.
-        model_name = 'gemini-1.5-flash'
-        model = genai.GenerativeModel(model_name)
-        st.success(f"✅ Conectado a {model_name}")
-    except Exception as e:
-        st.error(f"❌ Error al conectar con el modelo: {e}")
-        st.stop()
+        # Nota: La API a veces requiere quitar 'models/' del principio, a veces no.
+        # El SDK suele manejarlo, pero por si acaso limpiamos la entrada visualmente.
+        clean_name = model_name_input.replace("models/", "") 
+        model = genai.GenerativeModel(clean_name)
+    except:
+        st.warning("Nombre de modelo inválido.")
 
 # --- FUNCIONES ---
 
