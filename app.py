@@ -5,30 +5,29 @@ from io import BytesIO
 import time
 
 # --- 1. CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="NativeFlow 2.5 TURBO", page_icon="💎", layout="wide")
+st.set_page_config(page_title="NativeFlow 2.0 Stable", page_icon="🛡️", layout="wide")
 
 st.markdown("""
 <style>
-    .stProgress > div > div > div > div { background-color: #9c27b0; } /* Color Púrpura (Calidad) */
-    .success-box { padding: 10px; background-color: #f3e5f5; border-left: 5px solid #9c27b0; }
+    .stProgress > div > div > div > div { background-color: #007bff; } /* Azul Estabilidad */
+    .success-box { padding: 10px; background-color: #e3f2fd; border-left: 5px solid #007bff; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CONFIGURACIÓN API (MODO CALIDAD DE PAGO) ---
+# --- 2. CONFIGURACIÓN API ---
 with st.sidebar:
-    st.header("💎 Panel Calidad Premium")
+    st.header("🛡️ Panel de Control")
     
     try:
         api_key = st.secrets["GOOGLE_API_KEY"]
         genai.configure(api_key=api_key)
         
-        # --- EL CAMBIO CLAVE ---
-        # Volvemos al modelo 2.5 porque tienes Billing activado.
-        # Es más inteligente y respeta mejor el tono del libro.
-        MODEL_NAME = 'gemini-2.5-flash' 
+        # --- CAMBIO ESTRATÉGICO: GEMINI 2.0 FLASH ---
+        # Es mucho más estable que el 2.5 y más listo que el 1.5.
+        MODEL_NAME = 'gemini-2.0-flash' 
         model = genai.GenerativeModel(MODEL_NAME)
-        st.success(f"✅ Cerebro Activo: {MODEL_NAME}")
-        st.caption("🚀 Modo Pago: Máxima Calidad + Velocidad")
+        st.success(f"✅ Motor: {MODEL_NAME}")
+        st.caption("🚀 Modo: Estabilidad + Calidad")
         
     except Exception as e:
         st.error("❌ Error de API Key.")
@@ -53,14 +52,14 @@ with st.sidebar:
         tone_prompt = "Tone: Vivid, magical, descriptive, focusing on emotional imagery."
         temp = 0.8
 
-# --- 3. FUNCIONES INTELIGENTES ---
+# --- 3. FUNCIONES BLINDADAS ---
 
-def call_api_smart(prompt, temperature=0.7):
+def call_api_stable(prompt, temperature=0.7):
     """
-    Llama al modelo 2.5. Si hay un límite momentáneo, reintenta rápido.
+    Llama al modelo 2.0 con reintentos inteligentes.
     """
-    max_retries = 5
-    wait_time = 5 # Empezamos esperando 5 segundos si falla
+    max_retries = 8  # 8 Intentos de seguridad
+    wait_time = 5    # Espera inicial
     
     for attempt in range(max_retries):
         try:
@@ -69,17 +68,17 @@ def call_api_smart(prompt, temperature=0.7):
             
         except Exception as e:
             error_str = str(e)
-            # Aunque pagues, a veces el 2.5 tiene picos de tráfico. Lo manejamos suavemente.
-            if "429" in error_str or "quota" in error_str.lower():
-                st.toast(f"💎 Calibrando calidad... Esperando {wait_time}s", icon="⏳")
+            # Filtramos errores de saturación típicos
+            if any(x in error_str for x in ["429", "503", "500", "quota", "overloaded"]):
+                st.toast(f"⏳ Tráfico en Google (Intento {attempt+1}). Esperando {wait_time}s...", icon="🛡️")
                 time.sleep(wait_time)
-                wait_time += 5 # Aumentamos un poco si insiste
-            elif "503" in error_str: # Servicio sobrecargado
-                time.sleep(5)
+                wait_time = min(wait_time * 1.5, 60) # Aumentamos tiempo progresivamente
+            elif "404" in error_str:
+                return f"[ERROR CRÍTICO: Modelo no encontrado. Revisa el nombre.]"
             else:
-                return f"[ERROR: {error_str}]"
+                time.sleep(5) # Pausa por error desconocido y reintenta
     
-    return "[FALLO: Google no pudo procesar este fragmento]"
+    return "[FALLO: Google no respondió tras múltiples intentos]"
 
 def process_batch(text_batch, mode, tone_instr, temp):
     if not text_batch.strip(): return ""
@@ -107,20 +106,18 @@ def process_batch(text_batch, mode, tone_instr, temp):
         1. **Character:** 'Whirlwind' is ALWAYS Male (he/him). Fix any 'she'.
         2. **Vocabulary:** NEVER use 'outsourcing'. Use 'naming', 'externalizing', or 'separating'.
         3. **Flow:** Fix "The [noun] of [noun]" -> "[Noun] [Noun]" (e.g. "Balloon Breathing").
-        4. **Style:** Make it flow naturally like a story, not a manual.
+        4. **Style:** Make it flow naturally like a story.
         
         Text Batch:
         "{text_batch}"
         """
-    return call_api_smart(prompt, temp)
-
-# ... (El resto del código de arriba se queda igual) ...
+    return call_api_stable(prompt, temp)
 
 # --- 4. INTERFAZ ---
-st.title("💎 NativeFlow: Edición Premium (2.5)")
-st.markdown("**Motor:** Gemini 2.5 Flash | **Estado:** Facturación Activada")
+st.title("🛡️ NativeFlow: Edición Estable (2.0)")
+st.markdown(f"**Motor:** `{MODEL_NAME}` | **Estado:** Optimizado para libros largos")
 
-# INICIALIZAR MEMORIA (Para que el botón de descarga no desaparezca)
+# INICIALIZAR MEMORIA (Para que el botón de descarga NO desaparezca)
 if "audit_result" not in st.session_state:
     st.session_state.audit_result = None
 if "rewrite_result" not in st.session_state:
@@ -135,15 +132,16 @@ if uploaded_file:
     
     st.info(f"📖 Libro cargado: {total_paras} párrafos.")
 
-    tab1, tab2 = st.tabs(["📊 Auditoría de Calidad", "🚀 Corrección Premium"])
+    tab1, tab2 = st.tabs(["📊 Auditoría", "🚀 Corrección"])
 
-    def run_premium_process(mode):
+    def run_process_stable(mode):
         output_doc = Document()
-        if mode == "audit": output_doc.add_heading('Reporte Auditoría Premium', 0)
+        if mode == "audit": output_doc.add_heading('Reporte Auditoría NativeFlow', 0)
         
         p_bar = st.progress(0)
         status = st.empty()
         
+        # BATCH SIZE: 10,000 chars. El modelo 2.0 aguanta esto perfectamente.
         BATCH_SIZE = 10000 
         current_batch = ""
         
@@ -158,13 +156,13 @@ if uploaded_file:
             
             if len(current_batch) > BATCH_SIZE or i == total_paras - 1:
                 processed_batches += 1
-                status.text(f"✨ Procesando Sección {processed_batches}/{estimated_batches} con IA avanzada...")
+                status.text(f"⚙️ Procesando Bloque {processed_batches}/{estimated_batches}...")
                 
                 result = process_batch(current_batch, mode, tone_prompt, temp)
                 
                 if mode == "audit":
                     if "CLEAN" not in result and "ERROR" not in result:
-                        output_doc.add_paragraph(f"--- SECCIÓN {processed_batches} ---")
+                        output_doc.add_paragraph(f"--- BLOQUE {processed_batches} ---")
                         output_doc.add_paragraph(result)
                 else:
                     clean_text = result.replace("```", "").replace("markdown", "")
@@ -174,47 +172,43 @@ if uploaded_file:
                 p_bar.progress(min(processed_batches / estimated_batches, 1.0))
                 current_batch = ""
                 
+                # Pausa mínima para no saturar
                 time.sleep(1)
 
         total_time = round((time.time() - start_time) / 60, 2)
-        status.success(f"✅ ¡EDICIÓN COMPLETADA EN {total_time} MINUTOS!")
+        status.success(f"✅ ¡PROCESO FINALIZADO EN {total_time} MINUTOS!")
         st.balloons()
         
         bio = BytesIO()
         output_doc.save(bio)
         return bio
 
-    # --- PESTAÑA 1: AUDITORÍA CON MEMORIA ---
+    # --- PESTAÑA 1: AUDITORÍA ---
     with tab1:
-        # Botón de acción
-        if st.button("💎 Auditar Calidad"):
-            with st.spinner("Auditando... (Por favor espera)"):
-                # Guardamos el resultado en la memoria persistente
-                st.session_state.audit_result = run_premium_process("audit")
+        if st.button("📊 Auditar Ahora"):
+            with st.spinner("Analizando libro..."):
+                st.session_state.audit_result = run_process_stable("audit")
         
-        # Botón de descarga (Aparece y SE QUEDA ahí)
         if st.session_state.audit_result is not None:
             st.divider()
-            st.success("¡El reporte está listo para descargar!")
+            st.success("¡Reporte listo!")
             st.download_button(
-                label="⬇️ Descargar Reporte (.docx)",
-                data=st.session_state.audit_result.getvalue(),
-                file_name="Reporte_Premium.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                "⬇️ Descargar Reporte (.docx)",
+                st.session_state.audit_result.getvalue(),
+                "Reporte_Auditoria_2.0.docx"
             )
 
-    # --- PESTAÑA 2: CORRECCIÓN CON MEMORIA ---
+    # --- PESTAÑA 2: CORRECCIÓN ---
     with tab2:
-        if st.button("💎 Corregir Libro"):
-            with st.spinner("Reescribiendo... (Esto toma unos minutos)"):
-                st.session_state.rewrite_result = run_premium_process("rewrite")
+        if st.button("🚀 Corregir Libro"):
+            with st.spinner("Reescribiendo libro..."):
+                st.session_state.rewrite_result = run_process_stable("rewrite")
         
         if st.session_state.rewrite_result is not None:
             st.divider()
-            st.success("¡El libro corregido está listo!")
+            st.success("¡Libro completado!")
             st.download_button(
-                label="⬇️ Descargar Libro Editado (.docx)",
-                data=st.session_state.rewrite_result.getvalue(),
-                file_name="Libro_Premium.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                "⬇️ Descargar Libro (.docx)",
+                st.session_state.rewrite_result.getvalue(),
+                "Libro_Final_2.0.docx"
             )
