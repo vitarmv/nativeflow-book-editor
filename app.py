@@ -114,9 +114,17 @@ def process_batch(text_batch, mode, tone_instr, temp):
         """
     return call_api_smart(prompt, temp)
 
+# ... (El resto del código de arriba se queda igual) ...
+
 # --- 4. INTERFAZ ---
 st.title("💎 NativeFlow: Edición Premium (2.5)")
 st.markdown("**Motor:** Gemini 2.5 Flash | **Estado:** Facturación Activada")
+
+# INICIALIZAR MEMORIA (Para que el botón de descarga no desaparezca)
+if "audit_result" not in st.session_state:
+    st.session_state.audit_result = None
+if "rewrite_result" not in st.session_state:
+    st.session_state.rewrite_result = None
 
 uploaded_file = st.file_uploader("Sube tu manuscrito (.docx)", type=["docx"])
 
@@ -136,8 +144,6 @@ if uploaded_file:
         p_bar = st.progress(0)
         status = st.empty()
         
-        # BATCH SIZE: 10,000 chars (aprox 4-5 páginas).
-        # Gemini 2.5 tiene mucha memoria, esto le da buen contexto para la historia.
         BATCH_SIZE = 10000 
         current_batch = ""
         
@@ -168,7 +174,6 @@ if uploaded_file:
                 p_bar.progress(min(processed_batches / estimated_batches, 1.0))
                 current_batch = ""
                 
-                # Pausa mínima de cortesía (1s) para asegurar estabilidad máxima en el 2.5
                 time.sleep(1)
 
         total_time = round((time.time() - start_time) / 60, 2)
@@ -179,12 +184,37 @@ if uploaded_file:
         output_doc.save(bio)
         return bio
 
+    # --- PESTAÑA 1: AUDITORÍA CON MEMORIA ---
     with tab1:
+        # Botón de acción
         if st.button("💎 Auditar Calidad"):
-            data = run_premium_process("audit")
-            st.download_button("⬇️ Descargar Reporte", data.getvalue(), "Reporte_Premium.docx")
+            with st.spinner("Auditando... (Por favor espera)"):
+                # Guardamos el resultado en la memoria persistente
+                st.session_state.audit_result = run_premium_process("audit")
+        
+        # Botón de descarga (Aparece y SE QUEDA ahí)
+        if st.session_state.audit_result is not None:
+            st.divider()
+            st.success("¡El reporte está listo para descargar!")
+            st.download_button(
+                label="⬇️ Descargar Reporte (.docx)",
+                data=st.session_state.audit_result.getvalue(),
+                file_name="Reporte_Premium.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
 
+    # --- PESTAÑA 2: CORRECCIÓN CON MEMORIA ---
     with tab2:
         if st.button("💎 Corregir Libro"):
-            data = run_premium_process("rewrite")
-            st.download_button("⬇️ Descargar Libro Editado", data.getvalue(), "Libro_Premium.docx")
+            with st.spinner("Reescribiendo... (Esto toma unos minutos)"):
+                st.session_state.rewrite_result = run_premium_process("rewrite")
+        
+        if st.session_state.rewrite_result is not None:
+            st.divider()
+            st.success("¡El libro corregido está listo!")
+            st.download_button(
+                label="⬇️ Descargar Libro Editado (.docx)",
+                data=st.session_state.rewrite_result.getvalue(),
+                file_name="Libro_Premium.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
