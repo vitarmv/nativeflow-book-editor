@@ -5,60 +5,62 @@ from io import BytesIO
 import time
 
 # --- 1. CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="NativeFlow Crucero", page_icon="🚢", layout="wide")
+st.set_page_config(page_title="NativeFlow 2.5 TURBO", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
-    .stProgress > div > div > div > div { background-color: #17a2b8; }
-    .success-box { padding: 10px; background-color: #d4edda; border-left: 5px solid #28a745; }
+    .stProgress > div > div > div > div { background-color: #9c27b0; } /* Color Púrpura (Calidad) */
+    .success-box { padding: 10px; background-color: #f3e5f5; border-left: 5px solid #9c27b0; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CONFIGURACIÓN API ---
+# --- 2. CONFIGURACIÓN API (MODO CALIDAD DE PAGO) ---
 with st.sidebar:
-    st.header("⚙️ Configuración")
+    st.header("💎 Panel Calidad Premium")
     
-    # GESTIÓN DE CLAVES
     try:
         api_key = st.secrets["GOOGLE_API_KEY"]
         genai.configure(api_key=api_key)
         
-        # Usamos Gemini 2.0 Flash por su gran memoria (Context Window)
-        MODEL_NAME = 'gemini-2.0-flash' 
+        # --- EL CAMBIO CLAVE ---
+        # Volvemos al modelo 2.5 porque tienes Billing activado.
+        # Es más inteligente y respeta mejor el tono del libro.
+        MODEL_NAME = 'gemini-2.5-flash' 
         model = genai.GenerativeModel(MODEL_NAME)
-        st.success(f"✅ Motor Activo: {MODEL_NAME}")
+        st.success(f"✅ Cerebro Activo: {MODEL_NAME}")
+        st.caption("🚀 Modo Pago: Máxima Calidad + Velocidad")
         
     except Exception as e:
-        st.error("❌ Error de API Key. Revisa tus secrets.")
+        st.error("❌ Error de API Key.")
         st.stop()
 
     st.divider()
     
     # SELECTOR DE TONO
-    st.subheader("🎨 Estilo de Edición")
+    st.subheader("🎨 Estilo Literario")
     tone_option = st.selectbox(
         "Objetivo:", 
-        ["Warm & Kid-Friendly (Tu Estilo)", "Strict Grammar (Solo Corrección)", "Storyteller (Creativo)"]
+        ["Warm & Kid-Friendly (Recomendado)", "Strict Grammar", "Storyteller"]
     )
 
-    # Definición de Prompts según selección
-    if tone_option == "Warm & Kid-Friendly (Tu Estilo)":
-        tone_prompt = "Tone: Warm, empathetic, simplifying complex words for kids (6-10 years)."
+    if tone_option == "Warm & Kid-Friendly (Recomendado)":
+        tone_prompt = "Tone: Warm, empathetic, validating. Use simple, sensory words for kids (6-10 years)."
         temp = 0.7
-    elif tone_option == "Strict Grammar (Solo Corrección)":
-        tone_prompt = "Tone: Neutral. Keep author's voice exactly. Only fix grammar."
+    elif tone_option == "Strict Grammar":
+        tone_prompt = "Tone: Neutral. Keep author's voice exact. Only fix grammar errors."
         temp = 0.3
     else:
-        tone_prompt = "Tone: Vivid, magical, descriptive and sensory."
+        tone_prompt = "Tone: Vivid, magical, descriptive, focusing on emotional imagery."
         temp = 0.8
 
-# --- 3. FUNCIONES DE PROCESAMIENTO ROBUSTO ---
+# --- 3. FUNCIONES INTELIGENTES ---
 
-def call_api_safe(prompt, temperature=0.7):
+def call_api_smart(prompt, temperature=0.7):
     """
-    Realiza la llamada a la API con sistema de reintentos inteligente.
+    Llama al modelo 2.5. Si hay un límite momentáneo, reintenta rápido.
     """
     max_retries = 5
+    wait_time = 5 # Empezamos esperando 5 segundos si falla
     
     for attempt in range(max_retries):
         try:
@@ -67,84 +69,78 @@ def call_api_safe(prompt, temperature=0.7):
             
         except Exception as e:
             error_str = str(e)
-            # Si Google nos bloquea (429), esperamos 60 segundos y reintentamos
+            # Aunque pagues, a veces el 2.5 tiene picos de tráfico. Lo manejamos suavemente.
             if "429" in error_str or "quota" in error_str.lower():
-                wait_time = 60
-                st.toast(f"🛑 Tráfico alto en Google. Esperando {wait_time}s para enfriar...", icon="❄️")
+                st.toast(f"💎 Calibrando calidad... Esperando {wait_time}s", icon="⏳")
                 time.sleep(wait_time)
-            elif "404" in error_str:
-                return f"[ERROR CRÍTICO: El modelo {MODEL_NAME} no está disponible en tu cuenta]"
+                wait_time += 5 # Aumentamos un poco si insiste
+            elif "503" in error_str: # Servicio sobrecargado
+                time.sleep(5)
             else:
-                return f"[ERROR DESCONOCIDO: {error_str}]"
+                return f"[ERROR: {error_str}]"
     
-    return "[FALLO: Google no respondió tras múltiples intentos]"
+    return "[FALLO: Google no pudo procesar este fragmento]"
 
-def process_mega_batch(text_batch, mode, tone_instr, temp):
-    """
-    Procesa bloques gigantes (15,000 caracteres) para minimizar llamadas.
-    """
+def process_batch(text_batch, mode, tone_instr, temp):
     if not text_batch.strip(): return ""
 
     if mode == "audit":
         prompt = f"""
-        Analyze this book section (approx 5-7 pages).
-        Identify strictly:
-        1. Whirlwind Gender: Must be HE/HIM. Flag 'she/her'.
-        2. Jargon: Flag 'outsourcing'.
-        3. Phrasing: Flag "The X of Y" (e.g. "The breathing of the balloon").
+        ACT AS A PROFESSIONAL EDITOR. Audit this text section.
         
-        OUTPUT: List specific issues found concisely. If clean, output "CLEAN".
+        STRICT CHECKS:
+        1. Whirlwind Gender: Must be HE/HIM. Flag if 'she/her' appears.
+        2. Corporate Jargon: Flag 'outsourcing'.
+        3. Phrasing: Flag clumsy "The X of Y" structures.
+        
+        OUTPUT: List issues concisely. If perfect, output "CLEAN".
         Text: "{text_batch}"
         """
     else: # Rewrite
         prompt = f"""
-        You are editing a children's book (US English).
-        Rewrite the following text batch (approx 5-7 pages).
+        You are a professional children's book editor (US English).
+        Rewrite this text section to be native, warm, and engaging.
         
-        SPECS: {tone_instr}
+        TONE SPECS: {tone_instr}
         
-        CRITICAL RULES:
-        1. Whirlwind is ALWAYS Male (he/him).
-        2. No 'outsourcing' -> use 'naming' or 'externalizing'.
-        3. Fix "The X of Y" -> "X Y" (e.g. Balloon Breathing).
-        4. Maintain the paragraph structure.
+        CRITICAL RULES (DO NOT BREAK):
+        1. **Character:** 'Whirlwind' is ALWAYS Male (he/him). Fix any 'she'.
+        2. **Vocabulary:** NEVER use 'outsourcing'. Use 'naming', 'externalizing', or 'separating'.
+        3. **Flow:** Fix "The [noun] of [noun]" -> "[Noun] [Noun]" (e.g. "Balloon Breathing").
+        4. **Style:** Make it flow naturally like a story, not a manual.
         
         Text Batch:
         "{text_batch}"
         """
-    
-    return call_api_safe(prompt, temp)
+    return call_api_smart(prompt, temp)
 
-# --- 4. INTERFAZ PRINCIPAL ---
-st.title("🚢 NativeFlow: Modo Crucero")
-st.markdown("Procesamiento estable por lotes grandes para evitar bloqueos.")
+# --- 4. INTERFAZ ---
+st.title("💎 NativeFlow: Edición Premium (2.5)")
+st.markdown("**Motor:** Gemini 2.5 Flash | **Estado:** Facturación Activada")
 
 uploaded_file = st.file_uploader("Sube tu manuscrito (.docx)", type=["docx"])
 
 if uploaded_file:
     doc = Document(uploaded_file)
-    # Extraemos solo párrafos con contenido real
     all_paragraphs = [p.text for p in doc.paragraphs if len(p.text.strip()) > 2]
     total_paras = len(all_paragraphs)
     
-    st.info(f"📖 Libro cargado: **{total_paras} párrafos detectados**.")
-    
-    tab1, tab2 = st.tabs(["📊 Auditoría (Reporte)", "🚀 Corrección (Libro Final)"])
+    st.info(f"📖 Libro cargado: {total_paras} párrafos.")
 
-    # Función Maestra de Ejecución
-    def run_process(mode):
+    tab1, tab2 = st.tabs(["📊 Auditoría de Calidad", "🚀 Corrección Premium"])
+
+    def run_premium_process(mode):
         output_doc = Document()
-        if mode == "audit": output_doc.add_heading('Reporte Auditoría NativeFlow', 0)
+        if mode == "audit": output_doc.add_heading('Reporte Auditoría Premium', 0)
         
         p_bar = st.progress(0)
         status = st.empty()
         
-        # --- MEGA BATCHING (La clave del éxito) ---
-        # 15,000 chars = ~6 páginas. Pocas llamadas = Pocos bloqueos.
-        BATCH_SIZE = 15000 
+        # BATCH SIZE: 10,000 chars (aprox 4-5 páginas).
+        # Gemini 2.5 tiene mucha memoria, esto le da buen contexto para la historia.
+        BATCH_SIZE = 10000 
         current_batch = ""
         
-        # Cálculo para barra de progreso
         total_chars = sum(len(p) for p in all_paragraphs)
         estimated_batches = (total_chars // BATCH_SIZE) + 2
         processed_batches = 0
@@ -154,52 +150,41 @@ if uploaded_file:
         for i, text in enumerate(all_paragraphs):
             current_batch += text + "\n\n"
             
-            # Procesar cuando el lote esté lleno o sea el final
             if len(current_batch) > BATCH_SIZE or i == total_paras - 1:
                 processed_batches += 1
-                status.text(f"⚙️ Procesando Lote {processed_batches}/{estimated_batches} (Esto toma unos 20s)...")
+                status.text(f"✨ Procesando Sección {processed_batches}/{estimated_batches} con IA avanzada...")
                 
-                # LLAMADA A LA IA
-                result = process_mega_batch(current_batch, mode, tone_prompt, temp)
+                result = process_batch(current_batch, mode, tone_prompt, temp)
                 
-                # GUARDADO DE RESULTADOS
                 if mode == "audit":
                     if "CLEAN" not in result and "ERROR" not in result:
-                        output_doc.add_paragraph(f"--- REPORTE LOTE {processed_batches} ---")
+                        output_doc.add_paragraph(f"--- SECCIÓN {processed_batches} ---")
                         output_doc.add_paragraph(result)
                 else:
-                    # Limpiamos posibles bloques de código Markdown
                     clean_text = result.replace("```", "").replace("markdown", "")
                     output_doc.add_paragraph(clean_text)
-                    output_doc.add_paragraph("-" * 20) # Separador visual
+                    output_doc.add_paragraph("-" * 20)
 
-                # ACTUALIZAR UI
-                progress_val = min(processed_batches / estimated_batches, 1.0)
-                p_bar.progress(progress_val)
+                p_bar.progress(min(processed_batches / estimated_batches, 1.0))
+                current_batch = ""
                 
-                current_batch = "" 
-                
-                # --- PAUSA PREVENTIVA (CRITICAL) ---
-                # Esperamos 10s después de cada éxito para mantenernos bajo el radar.
-                if i < total_paras - 1:
-                    status.caption(f"☕ Enfriando motores (10s)... Lote {processed_batches} completado.")
-                    time.sleep(10)
+                # Pausa mínima de cortesía (1s) para asegurar estabilidad máxima en el 2.5
+                time.sleep(1)
 
-        total_time = round((time.time() - start_time) / 60, 1)
-        status.success(f"✅ ¡Proceso completado en {total_time} minutos!")
+        total_time = round((time.time() - start_time) / 60, 2)
+        status.success(f"✅ ¡EDICIÓN COMPLETADA EN {total_time} MINUTOS!")
+        st.balloons()
         
         bio = BytesIO()
         output_doc.save(bio)
         return bio
 
-    # --- PESTAÑA 1 ---
     with tab1:
-        if st.button("🔍 Iniciar Auditoría"):
-            file_data = run_process("audit")
-            st.download_button("⬇️ Descargar Reporte (.docx)", file_data.getvalue(), "Reporte_Auditoria.docx")
+        if st.button("💎 Auditar Calidad"):
+            data = run_premium_process("audit")
+            st.download_button("⬇️ Descargar Reporte", data.getvalue(), "Reporte_Premium.docx")
 
-    # --- PESTAÑA 2 ---
     with tab2:
-        if st.button("🚀 Iniciar Corrección"):
-            file_data = run_process("rewrite")
-            st.download_button("⬇️ Descargar Libro Final (.docx)", file_data.getvalue(), "Libro_Corregido.docx")
+        if st.button("💎 Corregir Libro"):
+            data = run_premium_process("rewrite")
+            st.download_button("⬇️ Descargar Libro Editado", data.getvalue(), "Libro_Premium.docx")
