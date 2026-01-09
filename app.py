@@ -4,26 +4,27 @@ import google.generativeai as genai
 from io import BytesIO
 import time
 import os
+import copy
 
 # --- 1. CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="NativeFlow 3.0 Final", page_icon="💎", layout="wide")
+st.set_page_config(page_title="NativeFlow: Formato Preservado", page_icon="🎨", layout="wide")
 
 st.markdown("""
 <style>
-    .stProgress > div > div > div > div { background-color: #28a745; }
-    .success-box { padding: 10px; background-color: #d1e7dd; border-left: 5px solid #198754; }
+    .stProgress > div > div > div > div { background-color: #6610f2; }
+    .success-box { padding: 10px; background-color: #e2e3e5; border-left: 5px solid #6610f2; }
     .recovery-box { padding: 15px; background-color: #fff3cd; border: 1px solid #ffecb5; border-radius: 5px; margin-bottom: 20px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CONFIGURACIÓN API Y SELECTOR ---
+# --- 2. CONFIGURACIÓN API ---
 with st.sidebar:
-    st.header("🎛️ Centro de Mando")
+    st.header("🎨 Centro de Diseño")
     
     try:
         api_key = st.secrets["GOOGLE_API_KEY"]
         genai.configure(api_key=api_key)
-        st.success("✅ Conexión Establecida")
+        st.success("✅ API Conectada")
     except Exception as e:
         st.error("❌ Falta API Key")
         st.stop()
@@ -31,32 +32,20 @@ with st.sidebar:
     st.divider()
 
     # --- SELECTOR DE MOTOR ---
-    st.subheader("🏎️ Motor de IA")
-    
-    model_option = st.radio(
-        "Estrategia:",
-        ["Estabilidad Total (Recomendado)", "Inteligencia 2.0 (Experimental)"],
-        help="Estabilidad usa el modelo más robusto disponible. Inteligencia usa el nuevo 2.0."
-    )
-
-    if "Estabilidad" in model_option:
-        # El comodín que nunca falla
-        MODEL_NAME = 'models/gemini-flash-latest' 
-        BATCH_SIZE = 8000 
-        initial_wait = 2   
-        st.info(f"🛡️ Modo Seguro Activo")
-    else:
-        # El modelo nuevo (puede saturarse en horas pico)
-        MODEL_NAME = 'models/gemini-2.0-flash'
-        BATCH_SIZE = 12000 
-        initial_wait = 1   
-        st.warning(f"⚡ Modo Velocidad 2.0")
-
+    st.subheader("🏎️ Motor")
+    # Usamos el comodín para asegurar estabilidad
+    MODEL_NAME = 'models/gemini-flash-latest' 
     model = genai.GenerativeModel(MODEL_NAME)
+    
+    BATCH_SIZE = 5000 # Lotes más pequeños para ser precisos con el formato
+    initial_wait = 2
+
+    st.info("ℹ️ Modo: Preservación de Estilo Original")
+    st.caption("Este modo edita sobre tu archivo original para mantener imágenes y diseño.")
 
     st.divider()
     
-    st.subheader("🎨 Estilo de Edición")
+    st.subheader("📝 Instrucciones")
     tone_option = st.selectbox(
         "Tono:", 
         ["Warm & Kid-Friendly (Recomendado)", "Strict Grammar"]
@@ -69,7 +58,7 @@ with st.sidebar:
         tone_prompt = "Tone: Neutral. Keep author's voice exact. Only fix grammar."
         temp = 0.3
 
-# --- 3. FUNCIONES ROBUSTAS ---
+# --- 3. FUNCIONES ---
 
 def call_api(prompt, temperature=0.7, wait_start=2):
     max_retries = 5 
@@ -80,45 +69,45 @@ def call_api(prompt, temperature=0.7, wait_start=2):
         try:
             response = model.generate_content(prompt, generation_config={"temperature": temperature})
             return response.text.strip()
-            
         except Exception as e:
             last_error = str(e)
-            # Si es saturación, esperamos
-            if any(x in last_error for x in ["429", "503", "500", "overloaded", "quota"]):
+            if any(x in last_error for x in ["429", "503", "500", "overloaded"]):
                 time.sleep(wait_time)
                 wait_time += 2 
             else:
                 time.sleep(1)
-                
-    return f"[ERROR TÉCNICO: {last_error}]"
+    return f"[ERROR: {last_error}]"
 
-def process_batch(text_batch, mode, tone_instr, temp, wait_config):
-    if not text_batch.strip(): return ""
+def process_paragraph_text(text, mode, tone_instr, temp, wait_config):
+    if len(text.strip()) < 3: return text # Si es muy corto (un número, un espacio), no lo tocamos.
 
     if mode == "audit":
         prompt = f"""
-        ACT AS A PROFESSIONAL EDITOR. Audit this text section.
-        STRICT CHECKS:
-        1. Whirlwind Gender: Must be HE/HIM. Flag 'she/her'.
-        2. Corporate Jargon: Flag 'outsourcing'.
-        3. Phrasing: Flag clumsy "The X of Y" structures.
-        OUTPUT: List issues concisely. If perfect, output "CLEAN".
-        Text: "{text_batch}"
+        AUDIT this text snippet. 
+        RULES: HE/HIM for Whirlwind. NO 'outsourcing'.
+        OUTPUT: List issues or "CLEAN".
+        Text: "{text}"
         """
     else: # Rewrite
         prompt = f"""
-        You are a professional children's book editor (US English).
-        Rewrite this text section.
-        TONE SPECS: {tone_instr}
-        CRITICAL RULES:
-        1. 'Whirlwind' is ALWAYS Male (he/him).
-        2. NO 'outsourcing'.
-        3. Fix "The X of Y" -> "X Y".
-        Text Batch: "{text_batch}"
+        You are a children's book editor. Rewrite this text to be native US English.
+        
+        CRITICAL FORMATTING RULES:
+        1. PRESERVE ALL EMOJIS exactly as they are.
+        2. DO NOT add new lines. Return exactly one paragraph.
+        3. KEEP the tone: {tone_instr}
+        4. RULES: Whirlwind = Male (he). No 'outsourcing'.
+        
+        Text to rewrite: "{text}"
         """
-    return call_api(prompt, temp, wait_config)
+    
+    result = call_api(prompt, temp, wait_config)
+    
+    # Limpieza básica de Markdown si la IA agrega negritas con asteriscos
+    clean_text = result.replace("**", "").replace("##", "").strip()
+    return clean_text
 
-# --- 4. SISTEMA DE RECUPERACIÓN (AUTO-SAVE) ---
+# --- 4. RECUPERACIÓN ---
 def save_recovery_file(doc_obj, filename):
     try: doc_obj.save(filename)
     except: pass
@@ -127,111 +116,125 @@ def load_recovery_file(filename):
     with open(filename, "rb") as f: return BytesIO(f.read())
 
 # --- 5. INTERFAZ ---
-st.title("💎 NativeFlow: Edición 3.0")
+st.title("🎨 NativeFlow: Edición 'Quirúrgica'")
+st.markdown("Este modo modifica el texto **dentro** de tu archivo original para conservar imágenes y diseño.")
 
-# A) ZONA DE RESCATE (Detecta archivos huérfanos)
-if os.path.exists("temp_audit_safe.docx"):
-    st.markdown("""<div class="recovery-box"><h4>⚠️ Auditoría Rescatada Disponible</h4></div>""", unsafe_allow_html=True)
-    col1, col2 = st.columns([1,4])
-    with col1:
-        st.download_button("⬇️ Descargar", load_recovery_file("temp_audit_safe.docx"), "Audit_Rescatado.docx")
-    with col2:
-        if st.button("🗑️ Borrar y empezar de cero", key="del_audit"):
-            os.remove("temp_audit_safe.docx")
-            st.rerun()
+# Recuperación
+if os.path.exists("temp_preserve_audit.docx"):
+    st.warning("⚠️ Auditoría interrumpida encontrada.")
+    st.download_button("⬇️ Rescatar", load_recovery_file("temp_preserve_audit.docx"), "Audit_Rescatado.docx")
+    if st.button("🗑️ Borrar temp audit"): os.remove("temp_preserve_audit.docx"); st.rerun()
 
-if os.path.exists("temp_rewrite_safe.docx"):
-    st.markdown("""<div class="recovery-box"><h4>⚠️ Libro Corregido Rescatado Disponible</h4></div>""", unsafe_allow_html=True)
-    col1, col2 = st.columns([1,4])
-    with col1:
-        st.download_button("⬇️ Descargar", load_recovery_file("temp_rewrite_safe.docx"), "Libro_Rescatado.docx")
-    with col2:
-        if st.button("🗑️ Borrar y empezar de cero", key="del_rewrite"):
-            os.remove("temp_rewrite_safe.docx")
-            st.rerun()
+if os.path.exists("temp_preserve_rewrite.docx"):
+    st.warning("⚠️ Libro corregido interrumpido encontrado.")
+    st.download_button("⬇️ Rescatar", load_recovery_file("temp_preserve_rewrite.docx"), "Libro_Rescatado.docx")
+    if st.button("🗑️ Borrar temp libro"): os.remove("temp_preserve_rewrite.docx"); st.rerun()
 
 st.divider()
 
-# B) MEMORIA DE SESIÓN (Para botones fijos)
-if "audit_done" not in st.session_state: st.session_state.audit_done = None
-if "rewrite_done" not in st.session_state: st.session_state.rewrite_done = None
+# MEMORIA
+if "final_doc" not in st.session_state: st.session_state.final_doc = None
 
-uploaded_file = st.file_uploader("Sube tu manuscrito (.docx)", type=["docx"])
+uploaded_file = st.file_uploader("Sube tu manuscrito ORIGINAL (.docx)", type=["docx"])
 
 if uploaded_file:
-    doc = Document(uploaded_file)
-    all_paragraphs = [p.text for p in doc.paragraphs if len(p.text.strip()) > 2]
+    # 1. Cargamos el original para leer
+    original_doc = Document(uploaded_file)
+    
+    # 2. Creamos una COPIA exacta en memoria para escribir
+    # Esto asegura que márgenes, estilos y headers se mantengan
+    uploaded_file.seek(0)
+    output_doc = Document(uploaded_file) 
+    
+    all_paragraphs = original_doc.paragraphs
     total_paras = len(all_paragraphs)
     
-    st.info(f"📖 Libro cargado: {total_paras} párrafos detectados.")
+    st.info(f"📖 Documento cargado. Se procesarán {total_paras} bloques de texto conservando el diseño.")
 
-    tab1, tab2 = st.tabs(["📊 Auditoría", "🚀 Corrección"])
+    tab1, tab2 = st.tabs(["📊 Auditoría (Solo Texto)", "🚀 Corrección (Mantiene Formato)"])
 
-    # FUNCIÓN MAESTRA CON GUARDADO PROGRESIVO
-    def run_process_wrapper(mode):
-        output_doc = Document()
-        if mode == "audit": output_doc.add_heading('Reporte Auditoría Final', 0)
+    def run_preservation_process(mode):
+        # Si es auditoría, creamos doc nuevo (no importa el formato del reporte)
+        # Si es corrección, usamos output_doc (el clon)
+        
+        working_doc = output_doc if mode == "rewrite" else Document()
+        if mode == "audit": working_doc.add_heading("Reporte de Auditoría", 0)
         
         p_bar = st.progress(0)
         status = st.empty()
         
-        current_batch = ""
-        total_chars = sum(len(p) for p in all_paragraphs)
-        estimated_batches = (total_chars // BATCH_SIZE) + 2
-        processed_batches = 0
+        # Archivo temporal
+        temp_filename = "temp_preserve_audit.docx" if mode == "audit" else "temp_preserve_rewrite.docx"
         
-        # Archivo temporal para guardar PASO A PASO
-        temp_file = "temp_audit_safe.docx" if mode == "audit" else "temp_rewrite_safe.docx"
-        
-        for i, text in enumerate(all_paragraphs):
-            current_batch += text + "\n\n"
+        # Iteramos sobre el ORIGINAL y escribimos en el WORKING_DOC
+        # Usamos zip para asegurar que estamos en la misma línea
+        if mode == "rewrite":
+            iterable = zip(original_doc.paragraphs, working_doc.paragraphs)
+            count_max = len(original_doc.paragraphs)
+        else:
+            iterable = enumerate(original_doc.paragraphs) # En audit solo leemos
+            count_max = len(original_doc.paragraphs)
+
+        processed_count = 0
+
+        for item in iterable:
+            processed_count += 1
             
-            if len(current_batch) > BATCH_SIZE or i == total_paras - 1:
-                processed_batches += 1
-                status.text(f"⚙️ Procesando Bloque {processed_batches}/{estimated_batches}...")
+            # Lógica diferente según el modo
+            if mode == "rewrite":
+                p_orig, p_dest = item
+                text_to_process = p_orig.text
+            else:
+                idx, p_orig = item
+                text_to_process = p_orig.text
+
+            # SOLO PROCESAMOS SI HAY TEXTO (Ignoramos saltos de línea vacíos para no romper diseño)
+            if len(text_to_process.strip()) > 2:
+                status.text(f"🖊️ Editando párrafo {processed_count}/{count_max}...")
                 
-                result = process_batch(current_batch, mode, tone_prompt, temp, initial_wait)
+                result = process_paragraph_text(text_to_process, mode, tone_prompt, temp, initial_wait)
                 
-                # Escribir en documento
-                if mode == "audit":
-                    output_doc.add_paragraph(f"--- BLOQUE {processed_batches} ---")
-                    if "ERROR TÉCNICO" in result: st.error(result)
-                    output_doc.add_paragraph(result)
+                if mode == "rewrite":
+                    # AQUÍ ESTÁ LA MAGIA: Reemplazamos el texto dentro del párrafo existente
+                    # Esto conserva la alineación y el estilo del párrafo (Normal, Heading, etc)
+                    if "[ERROR" not in result:
+                        p_dest.text = result 
                 else:
-                    clean_text = result.replace("```", "").replace("markdown", "")
-                    output_doc.add_paragraph(clean_text)
-                    output_doc.add_paragraph("-" * 20)
+                    # Auditoría (Reporte aparte)
+                    if "CLEAN" not in result and "[ERROR" not in result:
+                        working_doc.add_paragraph(f"--- Párrafo {processed_count} ---")
+                        working_doc.add_paragraph(f"Original: {text_to_process[:50]}...")
+                        working_doc.add_paragraph(result)
+                
+                # Pausa pequeña para no saturar
+                time.sleep(0.5)
+            
+            # Actualizamos barra
+            p_bar.progress(min(processed_count / count_max, 1.0))
+            
+            # Guardado progresivo cada 5 párrafos para no hacer lento el disco
+            if processed_count % 5 == 0:
+                save_recovery_file(working_doc, temp_filename)
 
-                # --- GUARDADO PROGRESIVO (Aquí está la magia) ---
-                # Guardamos en disco AHORA MISMO, para no perder nada si se corta
-                save_recovery_file(output_doc, temp_file)
-                # -----------------------------------------------
-
-                p_bar.progress(min(processed_batches / estimated_batches, 1.0))
-                current_batch = ""
-                time.sleep(1) 
+        status.success("✅ ¡Proceso Terminado!")
         
-        status.success(f"✅ ¡Finalizado!")
-        
-        # Devolver objeto para descarga directa
         bio = BytesIO()
-        output_doc.save(bio)
+        working_doc.save(bio)
         return bio
 
-    # --- PESTAÑA 1: AUDITORÍA ---
+    # --- BOTONES ---
     with tab1:
-        if st.button("📊 EJECUTAR AUDITORÍA"):
-            st.session_state.audit_done = run_process_wrapper("audit")
-        
-        if st.session_state.audit_done:
-            st.download_button("⬇️ Descargar Reporte Final", st.session_state.audit_done.getvalue(), "Reporte_Final.docx")
+        if st.button("📊 Auditar"):
+            st.session_state.final_doc = run_preservation_process("audit")
+            
+        if st.session_state.final_doc and st.session_state.final_doc.getbuffer().nbytes > 0: # Check simple
+             st.download_button("⬇️ Descargar Reporte", st.session_state.final_doc.getvalue(), "Reporte.docx")
 
-    # --- PESTAÑA 2: CORRECCIÓN ---
     with tab2:
-        if st.button("🚀 CORREGIR LIBRO"):
-            st.session_state.rewrite_done = run_process_wrapper("rewrite")
+        if st.button("🚀 Corregir y Mantener Diseño"):
+            result_bio = run_preservation_process("rewrite")
+            st.session_state.final_doc = result_bio # Guardar en sesión
         
-        if st.session_state.rewrite_done:
-            st.balloons()
-            st.success("¡Libro listo!")
-            st.download_button("⬇️ Descargar Libro Final", st.session_state.rewrite_done.getvalue(), "Libro_Corregido.docx")
+        # Botón siempre visible si hay resultado en sesión
+        if st.session_state.final_doc: 
+             st.download_button("⬇️ Descargar Libro Final", st.session_state.final_doc.getvalue(), "Libro_Diseño_Preservado.docx")
