@@ -1,54 +1,60 @@
 import streamlit as st
 from docx import Document
+from docx.shared import Inches, Mm
 import google.generativeai as genai
 from io import BytesIO
 import time
 import os
-import re # Para limpieza de símbolos
+import re
 
 # --- 1. CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="NativeFlow Completo", page_icon="💎", layout="wide")
+st.set_page_config(page_title="KDP Flow: Maquetador IA", page_icon="📚", layout="wide")
 
 st.markdown("""
 <style>
-    .stProgress > div > div > div > div { background-color: #0d6efd; }
-    .success-box { padding: 10px; background-color: #e6fffa; border-left: 5px solid #00bcd4; }
+    .stProgress > div > div > div > div { background-color: #ff9900; } /* Naranja Amazon */
+    .success-box { padding: 10px; background-color: #fff3cd; border-left: 5px solid #ff9900; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- 2. CONFIGURACIÓN API ---
 with st.sidebar:
-    st.header("🎛️ Centro de Mando")
+    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Amazon_logo.svg/1024px-Amazon_logo.svg.png", width=100)
+    st.header("KDP Flow 1.0")
     
     try:
         api_key = st.secrets["GOOGLE_API_KEY"]
         genai.configure(api_key=api_key)
-        st.success("✅ API Conectada")
+        st.success("✅ Motor IA Conectado")
     except Exception as e:
         st.error("❌ Falta API Key")
         st.stop()
     
     st.divider()
 
-    # Usamos el comodín estable
+    # --- NUEVA SECCIÓN: MAQUETACIÓN FÍSICA ---
+    st.subheader("📏 Formato de Papel (KDP)")
+    
+    paper_size = st.selectbox(
+        "Tamaño de Libro:",
+        ["Mismo que original (No tocar)", "6 x 9 pulgadas (Estándar Novela)", "5 x 8 pulgadas (Bolsillo)", "8.5 x 11 pulgadas (Cuento/Educativo)"]
+    )
+    
+    margins_mode = st.radio(
+        "Márgenes:",
+        ["Estándar", "Espejo (Para impresión a doble cara)"]
+    )
+
+    st.divider()
+
+    # --- MOTOR DE IA (INTOCABLE) ---
+    st.subheader("🧠 Motor de Corrección")
     MODEL_NAME = 'models/gemini-flash-latest' 
     model = genai.GenerativeModel(MODEL_NAME)
     
-    BATCH_SIZE = 5000 
-    initial_wait = 2
-
-    st.info("ℹ️ Sistema Todo en Uno")
-    st.markdown("""
-    * **Auditoría:** Detecta errores.
-    * **Corrección:** Mantiene formato y limpia símbolos (**).
-    """)
-
-    st.divider()
-    
-    st.subheader("📝 Tono")
     tone_option = st.selectbox(
-        "Estilo Literario:", 
-        ["Warm & Kid-Friendly (Recomendado)", "Strict Grammar"]
+        "Tono Literario:", 
+        ["Warm & Kid-Friendly (Infantil)", "Strict Grammar (Neutro)"]
     )
 
     if "Kid-Friendly" in tone_option:
@@ -58,207 +64,167 @@ with st.sidebar:
         tone_prompt = "Tone: Neutral. Keep author's voice exact."
         temp = 0.3
 
-# --- 3. FUNCIONES DE PROCESAMIENTO Y LIMPIEZA ---
+# --- 3. FUNCIONES DE LÓGICA ---
+
+def apply_kdp_layout(doc, size_selection, margin_mode):
+    """
+    Esta función cambia físicamente el tamaño de la hoja en Word.
+    NO toca el texto, solo el papel.
+    """
+    if "Mismo que original" in size_selection:
+        return doc # No hacemos nada
+
+    # Definir medidas según selección
+    if "6 x 9" in size_selection:
+        width, height = Inches(6), Inches(9)
+    elif "5 x 8" in size_selection:
+        width, height = Inches(5), Inches(8)
+    elif "8.5 x 11" in size_selection:
+        width, height = Inches(8.5), Inches(11)
+    
+    # Aplicar a TODAS las secciones del documento
+    for section in doc.sections:
+        section.page_width = width
+        section.page_height = height
+        
+        # Márgenes seguros para KDP (0.5 pulgadas mínimo)
+        section.top_margin = Inches(0.75)
+        section.bottom_margin = Inches(0.75)
+        section.left_margin = Inches(0.75) 
+        section.right_margin = Inches(0.6) # Un poco menos a la derecha
+        
+        # Márgenes Espejo (Mirror Margins) para libros impresos
+        if margin_mode == "Espejo":
+            section.mirror_margins = True
+            section.gutter = Inches(0.13) # Espacio para el pegamento del lomo
+            
+    return doc
 
 def clean_markdown(text):
-    """Elimina los símbolos de Markdown que ensucian el Word para Amazon KDP"""
-    # 1. Eliminar negritas y cursivas (**texto**, *texto*)
+    """Limpieza de símbolos para que Amazon no rechace el libro"""
     text = re.sub(r'\*\*(.*?)\*\*', r'\1', text) 
     text = re.sub(r'\*(.*?)\*', r'\1', text)     
     text = re.sub(r'__(.*?)__', r'\1', text)     
-    
-    # 2. Eliminar encabezados (### Título)
     text = re.sub(r'^#+\s*', '', text) 
-    
-    # 3. Eliminar viñetas de markdown si la IA las pone
-    if text.strip().startswith("- "):
-        text = text.strip()[2:] 
-    
+    if text.strip().startswith("- "): text = text.strip()[2:] 
     return text.strip()
 
-def call_api(prompt, temperature=0.7, wait_start=2):
-    max_retries = 5 
-    wait_time = wait_start
-    last_error = ""
-    
-    for attempt in range(max_retries):
+def call_api(prompt, temperature=0.7):
+    # Reintentos simples
+    for _ in range(3):
         try:
-            response = model.generate_content(prompt, generation_config={"temperature": temperature})
-            return response.text.strip()
-        except Exception as e:
-            last_error = str(e)
-            if any(x in last_error for x in ["429", "503", "500", "overloaded"]):
-                time.sleep(wait_time)
-                wait_time += 1
-            else:
-                time.sleep(1)
-    return f"[ERROR: {last_error}]"
+            return model.generate_content(prompt, generation_config={"temperature": temperature}).text.strip()
+        except:
+            time.sleep(1)
+    return "[ERROR API]"
 
-def process_paragraph_text(text, mode, tone_instr, temp, wait_config):
-    # Si es muy corto, lo ignoramos para no romper índices o pies de página
+def process_paragraph_text(text, mode, tone_instr, temp):
     if len(text.strip()) < 2: return text 
 
+    # --- AQUÍ ESTÁ EL PROMPT QUE GARANTIZA LA CORRECCIÓN NATIVA ---
     if mode == "audit":
         prompt = f"""
-        ACT AS A PROFESSIONAL EDITOR. Audit this text snippet.
-        
-        RULES: 
-        1. Whirlwind Gender: Must be HE/HIM. Flag if 'she/her' appears.
-        2. Corporate Jargon: Flag 'outsourcing'.
-        3. Phrasing: Flag clumsy "The X of Y" structures.
-        
-        OUTPUT: List issues concisely. If perfect, output "CLEAN".
+        ACT AS A PROFESSIONAL EDITOR. Audit this text.
+        CHECKS: Whirlwind=HE. No 'outsourcing'. Native Phrasing.
+        OUTPUT: List issues or "CLEAN".
         Text: "{text}"
         """
-    else: # Rewrite
+    else: 
         prompt = f"""
         You are a professional book editor.
         Rewrite this text to be native US English.
         
-        STRICT FORMATTING RULES (CRITICAL):
-        1. OUTPUT PLAIN TEXT ONLY. NO MARKDOWN.
-        2. DO NOT use asterisks (**), hashes (##), or underscores (_).
-        3. DO NOT use bullet points (-). Just the text.
-        4. KEEP the sentence structure exactly as it is.
-        5. Tone: {tone_instr}
+        RULES:
+        1. OUTPUT PLAIN TEXT ONLY. NO MARKDOWN (No **, No ##).
+        2. Grammar: Whirlwind = He/Him. No 'outsourcing'.
+        3. Style: Native, fluid English. Tone: {tone_instr}
+        4. KEEP original sentence structure intact.
         
-        Text to rewrite: "{text}"
+        Text: "{text}"
         """
     
-    result = call_api(prompt, temp, wait_config)
-    
-    # Limpieza extra de seguridad solo en modo reescritura
-    if mode == "rewrite":
-        result = clean_markdown(result)
-        
+    result = call_api(prompt, temp)
+    if mode == "rewrite": result = clean_markdown(result)
     return result
 
-# --- 4. SISTEMA DE GUARDADO ---
-def save_recovery_file(doc_obj, filename):
-    try: doc_obj.save(filename)
-    except: pass
+# --- 4. INTERFAZ PRINCIPAL ---
+st.title("📚 KDP Flow: De Word a Amazon")
+st.markdown("Tu asistente personal para publicar libros perfectos.")
 
-def load_recovery_file(filename):
-    with open(filename, "rb") as f: return BytesIO(f.read())
+# Recuperación
+if os.path.exists("temp_kdp_book.docx"):
+    st.warning("⚠️ Trabajo no guardado detectado.")
+    with open("temp_kdp_book.docx", "rb") as f:
+        st.download_button("⬇️ Rescatar Libro", f, "Libro_Rescatado.docx")
 
-# --- 5. INTERFAZ ---
-st.title("💎 NativeFlow: Sistema Completo")
+if "final_doc_bio" not in st.session_state: st.session_state.final_doc_bio = None
 
-# Recuperación de Desastres
-if os.path.exists("temp_full_audit.docx"):
-    st.warning("⚠️ Auditoría previa encontrada.")
-    col1, col2 = st.columns([1,4])
-    with col1:
-        st.download_button("⬇️ Rescatar", load_recovery_file("temp_full_audit.docx"), "Audit_Rescatado.docx")
-    with col2:
-        if st.button("🗑️ Borrar", key="del_audit"): os.remove("temp_full_audit.docx"); st.rerun()
-
-if os.path.exists("temp_full_rewrite.docx"):
-    st.warning("⚠️ Libro corregido previo encontrado.")
-    col1, col2 = st.columns([1,4])
-    with col1:
-        st.download_button("⬇️ Rescatar", load_recovery_file("temp_full_rewrite.docx"), "Libro_Rescatado.docx")
-    with col2:
-        if st.button("🗑️ Borrar", key="del_rew"): os.remove("temp_full_rewrite.docx"); st.rerun()
-
-st.divider()
-
-# Variables de Sesión para Botones
-if "final_audit_doc" not in st.session_state: st.session_state.final_audit_doc = None
-if "final_rewrite_doc" not in st.session_state: st.session_state.final_rewrite_doc = None
-
-uploaded_file = st.file_uploader("Sube tu manuscrito ORIGINAL (.docx)", type=["docx"])
+uploaded_file = st.file_uploader("Sube tu manuscrito (.docx)", type=["docx"])
 
 if uploaded_file:
-    # 1. Cargamos el original
     original_doc = Document(uploaded_file)
     total_paras = len(original_doc.paragraphs)
-    st.info(f"📖 Libro cargado: {total_paras} párrafos detectados.")
+    st.info(f"📖 Manuscrito cargado: {total_paras} párrafos.")
 
-    # 2. Las Pestañas que pediste
-    tab1, tab2 = st.tabs(["📊 Auditoría (Reporte)", "🚀 Corrección (KDP Ready)"])
+    tab1, tab2 = st.tabs(["🔍 Auditoría (Revisar)", "🚀 Generar Libro KDP (Publicar)"])
 
-    # --- LÓGICA DE PROCESO ---
-    def run_process(mode):
-        p_bar = st.progress(0)
-        status = st.empty()
+    with tab1:
+        if st.button("🔍 Auditar Texto"):
+            st.write("Analizando gramática y estilo...")
+            audit_doc = Document()
+            audit_doc.add_heading("Reporte de Auditoría", 0)
+            
+            progress = st.progress(0)
+            for i, p in enumerate(original_doc.paragraphs):
+                if len(p.text) > 5:
+                    res = process_paragraph_text(p.text, "audit", tone_prompt, temp)
+                    if "CLEAN" not in res and "[ERROR" not in res:
+                        audit_doc.add_paragraph(f"Párrafo {i+1}: {res}")
+                progress.progress((i+1)/total_paras)
+            
+            bio = BytesIO()
+            audit_doc.save(bio)
+            st.download_button("⬇️ Bajar Reporte", bio.getvalue(), "Reporte_Auditoria.docx")
+
+    with tab2:
+        st.write("Esto hará dos cosas a la vez:")
+        st.markdown("1. **Corregir Inglés:** Gramática nativa, limpieza de género y tono.")
+        st.markdown(f"2. **Maquetar:** Ajustará el papel a **{paper_size}** con márgenes **{margins_mode}**.")
         
-        # Preparar documento de salida
-        if mode == "audit":
-            # Para auditoría creamos un doc nuevo simple
-            working_doc = Document()
-            working_doc.add_heading("Reporte de Auditoría", 0)
-            temp_filename = "temp_full_audit.docx"
-            iterable = enumerate(original_doc.paragraphs)
-        else:
-            # Para corrección CLONAMOS el original para mantener formato
+        if st.button("🚀 CREAR LIBRO MAESTRO"):
+            # 1. Clonar original
             uploaded_file.seek(0)
             working_doc = Document(uploaded_file)
-            temp_filename = "temp_full_rewrite.docx"
+            
+            # 2. APLICAR FORMATO KDP (La Magia Nueva 🌟)
+            working_doc = apply_kdp_layout(working_doc, paper_size, margins_mode)
+            
+            # 3. PROCESAR TEXTO (La Magia Antigua 🧠)
+            progress = st.progress(0)
+            status = st.empty()
+            
             # Usamos zip para editar in-place
-            iterable = zip(original_doc.paragraphs, working_doc.paragraphs)
-
-        count = 0
-        
-        # Bucle principal
-        for item in iterable:
-            count += 1
-            
-            # Extraer texto según modo
-            if mode == "audit":
-                idx, p_orig = item
-                text_orig = p_orig.text
-            else:
-                p_orig, p_dest = item
-                text_orig = p_orig.text
-            
-            # Procesar solo si hay texto
-            if len(text_orig.strip()) > 1:
-                status.text(f"⚙️ Procesando párrafo {count}/{total_paras}...")
+            for i, (p_orig, p_dest) in enumerate(zip(original_doc.paragraphs, working_doc.paragraphs)):
+                if len(p_orig.text) > 1:
+                    status.text(f"Editando y Maquetando pág {i+1}...")
+                    new_text = process_paragraph_text(p_orig.text, "rewrite", tone_prompt, temp)
+                    if "[ERROR" not in new_text:
+                        p_dest.text = new_text
                 
-                result = process_paragraph_text(text_orig, mode, tone_prompt, temp, initial_wait)
-                
-                if mode == "audit":
-                    # Si encontramos error, lo anotamos
-                    if "CLEAN" not in result and "[ERROR" not in result:
-                        working_doc.add_paragraph(f"--- Párrafo {count} ---")
-                        working_doc.add_paragraph(f"Original: {text_orig[:40]}...")
-                        working_doc.add_paragraph(result)
-                else:
-                    # Corrección: Reemplazo Quirúrgico + Limpieza
-                    if "[ERROR" not in result:
-                        p_dest.text = result # Aquí se pega el texto limpio sin asteriscos
+                # Guardado de seguridad
+                if i % 10 == 0: working_doc.save("temp_kdp_book.docx")
+                progress.progress((i+1)/total_paras)
             
-            # Actualizar barra
-            p_bar.progress(min(count / total_paras, 1.0))
+            status.success("✅ ¡Libro Terminado y Maquetado!")
+            st.balloons()
             
-            # Guardado parcial cada 10 párrafos
-            if count % 10 == 0:
-                save_recovery_file(working_doc, temp_filename)
-            
-            time.sleep(0.1) # Pausa mínima para velocidad
+            final_bio = BytesIO()
+            working_doc.save(final_bio)
+            st.session_state.final_doc_bio = final_bio
 
-        status.success("✅ ¡Proceso completado!")
-        st.balloons()
-        
-        bio = BytesIO()
-        working_doc.save(bio)
-        return bio
-
-    # --- PESTAÑA 1: AUDITORÍA ---
-    with tab1:
-        st.write("Genera un reporte de errores (Género, frases raras, etc).")
-        if st.button("📊 Comenzar Auditoría"):
-            st.session_state.final_audit_doc = run_process("audit")
-        
-        if st.session_state.final_audit_doc:
-            st.download_button("⬇️ Descargar Reporte", st.session_state.final_audit_doc.getvalue(), "Reporte_Auditoria.docx")
-
-    # --- PESTAÑA 2: CORRECCIÓN ---
-    with tab2:
-        st.write("Genera el libro final: Formato original conservado, sin símbolos raros.")
-        if st.button("🚀 Corregir Libro Final"):
-            st.session_state.final_rewrite_doc = run_process("rewrite")
-        
-        if st.session_state.final_rewrite_doc:
-            st.download_button("⬇️ Descargar Libro Listo (KDP)", st.session_state.final_rewrite_doc.getvalue(), "Libro_Final_KDP.docx")
+        if st.session_state.final_doc_bio:
+            st.download_button(
+                "⬇️ Descargar Libro Listo para Amazon (.docx)",
+                st.session_state.final_doc_bio.getvalue(),
+                "Libro_KDP_Final.docx"
+            )
