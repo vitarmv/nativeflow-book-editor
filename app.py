@@ -6,11 +6,11 @@ import time
 import os
 
 # --- 1. CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="NativeFlow PRO", page_icon="🚀", layout="wide")
+st.set_page_config(page_title="NativeFlow 3.0 Final", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
-    .stProgress > div > div > div > div { background-color: #0d6efd; }
+    .stProgress > div > div > div > div { background-color: #28a745; }
     .success-box { padding: 10px; background-color: #d1e7dd; border-left: 5px solid #198754; }
     .recovery-box { padding: 15px; background-color: #fff3cd; border: 1px solid #ffecb5; border-radius: 5px; margin-bottom: 20px; }
 </style>
@@ -30,54 +30,51 @@ with st.sidebar:
     
     st.divider()
 
-    # --- SELECTOR DE MOTOR (Basado en TU lista confirmada) ---
-    st.subheader("🏎️ Elige tu Motor")
+    # --- SELECTOR DE MOTOR ---
+    st.subheader("🏎️ Motor de IA")
     
     model_option = st.radio(
-        "¿Qué priorizamos?",
-        ["Velocidad (Auditoría)", "Calidad (Edición Final)"],
-        help="Velocidad usa 2.0 Flash. Calidad usa 2.5 Flash."
+        "Estrategia:",
+        ["Estabilidad Total (Recomendado)", "Inteligencia 2.0 (Experimental)"],
+        help="Estabilidad usa el modelo más robusto disponible. Inteligencia usa el nuevo 2.0."
     )
 
-    if "Velocidad" in model_option:
-        # Usamos el nombre EXACTO de tu lista para evitar error 404
-        MODEL_NAME = 'models/gemini-2.0-flash' 
-        BATCH_SIZE = 12000 # Lotes grandes para ir rápido
-        initial_wait = 1   # Espera mínima
-        st.info(f"⚡ Motor Activo: 2.0 Flash\nIdeal para auditar rápido.")
+    if "Estabilidad" in model_option:
+        # El comodín que nunca falla
+        MODEL_NAME = 'models/gemini-flash-latest' 
+        BATCH_SIZE = 8000 
+        initial_wait = 2   
+        st.info(f"🛡️ Modo Seguro Activo")
     else:
-        # Usamos el nombre EXACTO de tu lista
-        MODEL_NAME = 'models/gemini-2.5-flash'
-        BATCH_SIZE = 7000  # Lotes medianos para calidad
-        initial_wait = 3   # Espera prudente
-        st.info(f"💎 Motor Activo: 2.5 Flash\nIdeal para reescribir bonito.")
+        # El modelo nuevo (puede saturarse en horas pico)
+        MODEL_NAME = 'models/gemini-2.0-flash'
+        BATCH_SIZE = 12000 
+        initial_wait = 1   
+        st.warning(f"⚡ Modo Velocidad 2.0")
 
-    # Inicializamos el modelo
     model = genai.GenerativeModel(MODEL_NAME)
 
     st.divider()
     
-    st.subheader("🎨 Estilo")
+    st.subheader("🎨 Estilo de Edición")
     tone_option = st.selectbox(
-        "Tono de Edición:", 
-        ["Warm & Kid-Friendly (Recomendado)", "Strict Grammar", "Storyteller"]
+        "Tono:", 
+        ["Warm & Kid-Friendly (Recomendado)", "Strict Grammar"]
     )
 
     if "Kid-Friendly" in tone_option:
         tone_prompt = "Tone: Warm, empathetic, validating. Use simple, sensory words for kids (6-10 years)."
         temp = 0.7
-    elif "Strict" in tone_option:
-        tone_prompt = "Tone: Neutral. Keep author's voice exact. Only fix grammar errors."
-        temp = 0.3
     else:
-        tone_prompt = "Tone: Vivid, magical, descriptive."
-        temp = 0.8
+        tone_prompt = "Tone: Neutral. Keep author's voice exact. Only fix grammar."
+        temp = 0.3
 
 # --- 3. FUNCIONES ROBUSTAS ---
 
 def call_api(prompt, temperature=0.7, wait_start=2):
-    max_retries = 8
+    max_retries = 5 
     wait_time = wait_start
+    last_error = ""
     
     for attempt in range(max_retries):
         try:
@@ -85,21 +82,15 @@ def call_api(prompt, temperature=0.7, wait_start=2):
             return response.text.strip()
             
         except Exception as e:
-            error_str = str(e)
-            
-            # Gestión de tráfico (Errores 429, 503)
-            if any(x in error_str for x in ["429", "503", "500", "quota", "overloaded"]):
-                st.toast(f"🚦 Tráfico en la ruta. Reintentando en {wait_time}s...", icon="⏳")
+            last_error = str(e)
+            # Si es saturación, esperamos
+            if any(x in last_error for x in ["429", "503", "500", "overloaded", "quota"]):
                 time.sleep(wait_time)
-                wait_time += 2 # Incremento suave
-            
-            # Error 404 real (no debería pasar con nombres correctos)
-            elif "404" in error_str:
-                return f"[ERROR FATAL: El modelo {MODEL_NAME} no responde. Cambia el selector.]"
+                wait_time += 2 
             else:
-                time.sleep(1) 
+                time.sleep(1)
                 
-    return "[FALLO: Google no respondió tras múltiples intentos]"
+    return f"[ERROR TÉCNICO: {last_error}]"
 
 def process_batch(text_batch, mode, tone_instr, temp, wait_config):
     if not text_batch.strip(): return ""
@@ -127,7 +118,7 @@ def process_batch(text_batch, mode, tone_instr, temp, wait_config):
         """
     return call_api(prompt, temp, wait_config)
 
-# --- 4. SISTEMA DE RECUPERACIÓN (AUTO-SAVE EN DISCO) ---
+# --- 4. SISTEMA DE RECUPERACIÓN (AUTO-SAVE) ---
 def save_recovery_file(doc_obj, filename):
     try: doc_obj.save(filename)
     except: pass
@@ -136,30 +127,34 @@ def load_recovery_file(filename):
     with open(filename, "rb") as f: return BytesIO(f.read())
 
 # --- 5. INTERFAZ ---
-st.title("🚀 NativeFlow: Sistema Pro")
+st.title("💎 NativeFlow: Edición 3.0")
 
-# --- ZONA DE RESCATE ---
-if os.path.exists("temp_audit_rec.docx"):
-    st.markdown("""<div class="recovery-box"><h4>⚠️ Auditoría Interrumpida Detectada</h4></div>""", unsafe_allow_html=True)
+# A) ZONA DE RESCATE (Detecta archivos huérfanos)
+if os.path.exists("temp_audit_safe.docx"):
+    st.markdown("""<div class="recovery-box"><h4>⚠️ Auditoría Rescatada Disponible</h4></div>""", unsafe_allow_html=True)
     col1, col2 = st.columns([1,4])
     with col1:
-        st.download_button("⬇️ Rescatar Archivo", load_recovery_file("temp_audit_rec.docx"), "Audit_Rescatado.docx")
+        st.download_button("⬇️ Descargar", load_recovery_file("temp_audit_safe.docx"), "Audit_Rescatado.docx")
     with col2:
-        if st.button("🗑️ Borrar y empezar nuevo"):
-            os.remove("temp_audit_rec.docx")
+        if st.button("🗑️ Borrar y empezar de cero", key="del_audit"):
+            os.remove("temp_audit_safe.docx")
             st.rerun()
 
-if os.path.exists("temp_rewrite_rec.docx"):
-    st.markdown("""<div class="recovery-box"><h4>⚠️ Corrección Interrumpida Detectada</h4></div>""", unsafe_allow_html=True)
+if os.path.exists("temp_rewrite_safe.docx"):
+    st.markdown("""<div class="recovery-box"><h4>⚠️ Libro Corregido Rescatado Disponible</h4></div>""", unsafe_allow_html=True)
     col1, col2 = st.columns([1,4])
     with col1:
-        st.download_button("⬇️ Rescatar Libro", load_recovery_file("temp_rewrite_rec.docx"), "Libro_Rescatado.docx")
+        st.download_button("⬇️ Descargar", load_recovery_file("temp_rewrite_safe.docx"), "Libro_Rescatado.docx")
     with col2:
-        if st.button("🗑️ Borrar y empezar nuevo"):
-            os.remove("temp_rewrite_rec.docx")
+        if st.button("🗑️ Borrar y empezar de cero", key="del_rewrite"):
+            os.remove("temp_rewrite_safe.docx")
             st.rerun()
 
 st.divider()
+
+# B) MEMORIA DE SESIÓN (Para botones fijos)
+if "audit_done" not in st.session_state: st.session_state.audit_done = None
+if "rewrite_done" not in st.session_state: st.session_state.rewrite_done = None
 
 uploaded_file = st.file_uploader("Sube tu manuscrito (.docx)", type=["docx"])
 
@@ -172,9 +167,10 @@ if uploaded_file:
 
     tab1, tab2 = st.tabs(["📊 Auditoría", "🚀 Corrección"])
 
-    def run_process(mode):
+    # FUNCIÓN MAESTRA CON GUARDADO PROGRESIVO
+    def run_process_wrapper(mode):
         output_doc = Document()
-        if mode == "audit": output_doc.add_heading('Reporte Auditoría', 0)
+        if mode == "audit": output_doc.add_heading('Reporte Auditoría Final', 0)
         
         p_bar = st.progress(0)
         status = st.empty()
@@ -184,9 +180,9 @@ if uploaded_file:
         estimated_batches = (total_chars // BATCH_SIZE) + 2
         processed_batches = 0
         
-        # Archivo temporal para ir guardando
-        temp_filename = "temp_audit_rec.docx" if mode == "audit" else "temp_rewrite_rec.docx"
-
+        # Archivo temporal para guardar PASO A PASO
+        temp_file = "temp_audit_safe.docx" if mode == "audit" else "temp_rewrite_safe.docx"
+        
         for i, text in enumerate(all_paragraphs):
             current_batch += text + "\n\n"
             
@@ -196,42 +192,46 @@ if uploaded_file:
                 
                 result = process_batch(current_batch, mode, tone_prompt, temp, initial_wait)
                 
+                # Escribir en documento
                 if mode == "audit":
-                    if "CLEAN" not in result and "ERROR" not in result:
-                        output_doc.add_paragraph(f"--- BLOQUE {processed_batches} ---")
-                        output_doc.add_paragraph(result)
+                    output_doc.add_paragraph(f"--- BLOQUE {processed_batches} ---")
+                    if "ERROR TÉCNICO" in result: st.error(result)
+                    output_doc.add_paragraph(result)
                 else:
                     clean_text = result.replace("```", "").replace("markdown", "")
                     output_doc.add_paragraph(clean_text)
                     output_doc.add_paragraph("-" * 20)
 
-                # ACTUALIZAMOS BARRA
+                # --- GUARDADO PROGRESIVO (Aquí está la magia) ---
+                # Guardamos en disco AHORA MISMO, para no perder nada si se corta
+                save_recovery_file(output_doc, temp_file)
+                # -----------------------------------------------
+
                 p_bar.progress(min(processed_batches / estimated_batches, 1.0))
                 current_batch = ""
-                
-                # PAUSA ESTRATÉGICA
-                if "2.0" in MODEL_NAME:
-                    time.sleep(0.1) # El 2.0 es rápido, casi sin pausa
-                else:
-                    time.sleep(1)   # El 2.5 necesita respirar
+                time.sleep(1) 
         
-        # FINALIZACIÓN
         status.success(f"✅ ¡Finalizado!")
-        st.balloons()
         
-        # Guardado final en disco por seguridad
-        save_recovery_file(output_doc, temp_filename)
-            
+        # Devolver objeto para descarga directa
         bio = BytesIO()
         output_doc.save(bio)
         return bio
 
+    # --- PESTAÑA 1: AUDITORÍA ---
     with tab1:
-        if st.button("📊 Auditar Ahora"):
-            data = run_process("audit")
-            st.download_button("⬇️ Descargar Reporte", data.getvalue(), "Reporte_Auditoria.docx")
+        if st.button("📊 EJECUTAR AUDITORÍA"):
+            st.session_state.audit_done = run_process_wrapper("audit")
+        
+        if st.session_state.audit_done:
+            st.download_button("⬇️ Descargar Reporte Final", st.session_state.audit_done.getvalue(), "Reporte_Final.docx")
 
+    # --- PESTAÑA 2: CORRECCIÓN ---
     with tab2:
-        if st.button("🚀 Corregir Libro"):
-            data = run_process("rewrite")
-            st.download_button("⬇️ Descargar Libro", data.getvalue(), "Libro_Final.docx")
+        if st.button("🚀 CORREGIR LIBRO"):
+            st.session_state.rewrite_done = run_process_wrapper("rewrite")
+        
+        if st.session_state.rewrite_done:
+            st.balloons()
+            st.success("¡Libro listo!")
+            st.download_button("⬇️ Descargar Libro Final", st.session_state.rewrite_done.getvalue(), "Libro_Corregido.docx")
