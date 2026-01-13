@@ -41,7 +41,7 @@ with st.sidebar:
             "1. 💎 Corrector & Auditor (Texto)",
             "2. 📏 Maquetador KDP PRO (Diseño)",
             "3. 📲 Workbook Cleaner (Líneas)",
-            "4. 🧼 Limpiador Rápido"
+            "4. 🧼 Limpiador 'Nuclear' de Espacios"
         ]
     )
     
@@ -49,12 +49,19 @@ with st.sidebar:
     MODEL_NAME = 'models/gemini-flash-latest' 
     model = genai.GenerativeModel(MODEL_NAME)
 
-# --- 3. FUNCIONES DE LÓGICA ---
+# --- 3. FUNCIONES DE LÓGICA (EL CEREBRO) ---
 
 def fix_irregular_spacing(text):
-    """Elimina dobles espacios y espacios invisibles."""
+    """
+    LA SOLUCIÓN NUCLEAR (Equivalente a tu comando ^w).
+    1. Rompe el texto donde haya CUALQUIER espacio raro (tabs, saltos, nbsps).
+    2. Lo vuelve a unir con un solo espacio normal.
+    Esto elimina el efecto de "texto estirado" de la web.
+    """
     if not text: return text
-    return re.sub(r'[ \t\xA0]{2,}', ' ', text).strip()
+    # split() sin argumentos borra todo tipo de whitespace (\n, \t, \v, space)
+    # y " ".join() los une con un espacio simple limpio.
+    return " ".join(text.split())
 
 def clean_markdown(text):
     text = re.sub(r'\*\*(.*?)\*\*', r'\1', text) 
@@ -118,11 +125,11 @@ if "Corrector" in selected_module:
                 st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (CON PROTECCIÓN DE HUÉRFANAS)
+# MÓDULO 2: MAQUETADOR KDP PRO (AHORA CON LIMPIEZA NUCLEAR)
 # ==============================================================================
 elif "Maquetador" in selected_module:
     st.header("📏 Maquetador KDP PRO")
-    st.markdown("Ajusta tamaño, limpia espacios y evita líneas huérfanas.")
+    st.markdown("Ajusta tamaño, limpia espacios WEB y evita líneas huérfanas.")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -135,10 +142,11 @@ elif "Maquetador" in selected_module:
     
     col3, col4 = st.columns(2)
     with col3:
-        fix_orphans = st.checkbox("🛡️ Proteger líneas huérfanas/viudas", value=True, help="Evita que queden líneas solas al principio o final de la hoja.")
-        fix_titles = st.checkbox("📎 Pegar Títulos", value=True, help="Evita que un título quede solo al final de la hoja.")
+        fix_orphans = st.checkbox("🛡️ Proteger líneas huérfanas/viudas", value=True)
+        fix_titles = st.checkbox("📎 Pegar Títulos (Keep with Next)", value=True)
     with col4:
-        fix_spaces = st.checkbox("🧼 Reparar espacios dobles", value=True)
+        # AQUÍ ESTÁ LA NUEVA FUNCIÓN
+        fix_spaces = st.checkbox("☢️ Limpieza Nuclear de Espacios (Arregla copy-paste de web)", value=True)
         justify_text = st.checkbox("📄 Justificar texto completo", value=False)
     
     uploaded_file = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod2")
@@ -146,7 +154,7 @@ elif "Maquetador" in selected_module:
     if uploaded_file and st.button("🛠️ Procesar Libro"):
         doc = Document(uploaded_file)
         
-        # 1. Ajuste de Página (Papel)
+        # 1. Ajuste de Página
         if "6 x 9" in size: w, h = Inches(6), Inches(9)
         elif "5 x 8" in size: w, h = Inches(5), Inches(8)
         else: w, h = Inches(8.5), Inches(11)
@@ -158,25 +166,25 @@ elif "Maquetador" in selected_module:
             section.left_margin = Inches(0.75); section.right_margin = Inches(0.6)
             if "Espejo" in margins: section.mirror_margins = True; section.gutter = Inches(0.13)
 
-        # 2. Procesamiento de Texto y Párrafos
+        # 2. Procesamiento de Texto
         count_fixed = 0
         
         for p in doc.paragraphs:
-            # A. Limpieza de Espacios
+            # A. LIMPIEZA NUCLEAR
             if fix_spaces and len(p.text) > 0:
-                original_len = len(p.text)
-                cleaned_text = fix_irregular_spacing(p.text)
-                if len(cleaned_text) < original_len:
+                original_text = p.text
+                # Esta funcion .split() detecta ^w (tabs, newlines, spaces) y los borra
+                cleaned_text = " ".join(original_text.split())
+                
+                if cleaned_text != original_text:
                     p.text = cleaned_text
                     count_fixed += 1
             
-            # B. Protección Huérfanas/Viudas (LA MAGIA NUEVA ✨)
+            # B. Protección Huérfanas
             if fix_orphans:
                 p.paragraph_format.widow_control = True 
             
-            # C. Protección de Títulos (Keep with Next)
-            # Detectamos títulos si son cortos y no terminan en punto (heurística simple)
-            # O si tienen estilo 'Heading'
+            # C. Títulos
             if fix_titles:
                 is_heading = p.style.name.startswith('Heading') or (len(p.text) < 60 and len(p.text) > 3 and not p.text.endswith('.'))
                 if is_heading:
@@ -188,8 +196,8 @@ elif "Maquetador" in selected_module:
 
         bio = BytesIO(); doc.save(bio)
         
-        st.success(f"✅ Formato KDP aplicado. Se optimizaron {len(doc.paragraphs)} párrafos.")
-        if count_fixed > 0: st.info(f"🧼 Se limpiaron espacios extra en {count_fixed} lugares.")
+        st.success(f"✅ Formato KDP aplicado.")
+        if count_fixed > 0: st.info(f"☢️ Se reconstruyeron {count_fixed} párrafos que tenían formato web sucio.")
             
         st.download_button("⬇️ Descargar Libro Profesional", bio.getvalue(), "Libro_KDP_Pro.docx")
 
@@ -198,7 +206,6 @@ elif "Maquetador" in selected_module:
 # ==============================================================================
 elif "Workbook" in selected_module:
     st.header("📲 Workbook Cleaner")
-    
     cta_text = st.text_area("Texto CTA:", "🛑 (Ejercicio): Completa esto en tu Cuaderno. Descarga: [LINK]", height=80)
     threshold = st.slider("Sensibilidad", 3, 15, 4)
     uploaded_file = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod3")
@@ -216,13 +223,23 @@ elif "Workbook" in selected_module:
         st.download_button("⬇️ Descargar eBook", bio.getvalue(), "Ebook_Ready.docx")
 
 # ==============================================================================
-# MÓDULO 4: LIMPIADOR RÁPIDO
+# MÓDULO 4: LIMPIADOR NUCLEAR (SOLO ESPACIOS)
 # ==============================================================================
 elif "Limpiador" in selected_module:
-    st.header("🧼 Limpiador Rápido")
+    st.header("☢️ Limpiador 'Nuclear' de Formato")
+    st.info("Elimina saltos de línea manuales y espacios web que rompen la justificación.")
+
     uploaded_file = st.file_uploader("Sube docx", type=["docx"], key="mod4")
-    if uploaded_file and st.button("🧹 Limpiar"):
+    if uploaded_file and st.button("🧹 Limpiar Formato Web"):
         doc = Document(uploaded_file)
-        for p in doc.paragraphs: p.text = fix_irregular_spacing(p.text)
+        count = 0
+        for p in doc.paragraphs:
+            if p.text:
+                new_text = " ".join(p.text.split())
+                if new_text != p.text:
+                    p.text = new_text
+                    count += 1
+        
+        st.success(f"✅ Se arreglaron {count} párrafos con basura de formato web.")
         bio = BytesIO(); doc.save(bio)
-        st.download_button("⬇️ Descargar", bio.getvalue(), "Limpio.docx")
+        st.download_button("⬇️ Descargar Limpio", bio.getvalue(), "Limpio_Nuclear.docx")
