@@ -7,20 +7,28 @@ from io import BytesIO
 import time
 import os
 import re
-import pyphen  # <--- RECUERDA: pip install pyphen
+import uuid
+import itertools
+
+# --- LIBRERÍAS NUEVAS PARA FUNCIONES PRO ---
+import pyphen  # Para silabeo
+import mammoth # Para conversión limpia a HTML
+from bs4 import BeautifulSoup # Para estructurar el EPUB
+from ebooklib import epub # Para armar el archivo .epub
 
 # --- 1. CONFIGURACIÓN GLOBAL ---
-st.set_page_config(page_title="Suite Autores 360 PRO", page_icon="📚", layout="wide")
+st.set_page_config(page_title="Suite Autores 360 ULTIMATE", page_icon="📚", layout="wide")
 
 st.markdown("""
 <style>
     .stProgress > div > div > div > div { background-color: #4CAF50; }
     .block-container { padding-top: 2rem; }
-    div[data-testid="stSidebar"] { background-color: #f0f2f6; }
+    div[data-testid="stSidebar"] { background-color: #f8f9fa; }
+    h1 { color: #2c3e50; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CONFIGURACIÓN DE ESTILOS (TEMAS) ---
+# --- 2. DICCIONARIO DE TEMAS (MAQUETADOR PRO) ---
 THEMES = {
     "Neutro (Estándar)": {"font": "Calibri", "header": "Calibri", "size": 11},
     "Romance / Fantasía (Serif)": {"font": "Garamond", "header": "Garamond", "size": 12},
@@ -34,7 +42,7 @@ with st.sidebar:
     st.title("Centro de Mando")
     
     try:
-        # MANTENEMOS TU CONFIGURACIÓN SEGURA ORIGINAL
+        # CONEXIÓN SEGURA A ST.SECRETS
         api_key = st.secrets["GOOGLE_API_KEY"]
         genai.configure(api_key=api_key)
         st.success("✅ Motor IA Activo")
@@ -44,14 +52,15 @@ with st.sidebar:
         
     st.divider()
     
-    # --- MENÚ DE SELECCIÓN ---
+    # --- MENÚ DE SELECCIÓN (5 MÓDULOS) ---
     selected_module = st.radio(
         "Selecciona Herramienta:",
         [
-            "1. 💎 Corrector & Auditor (Texto)",
-            "2. 📏 Maquetador KDP PRO (Diseño)",
-            "3. 📲 Workbook Cleaner (Líneas)",
-            "4. 🧼 Limpiador 'Nuclear' de Espacios"
+            "1. 💎 Auditor & Corrector IA",
+            "2. 📏 Maquetador KDP PRO (Papel)",
+            "3. 📲 Workbook Cleaner (Kindle)",
+            "4. 🧼 Limpiador Rápido",
+            "5. ⚡ Generador EPUB (eBook)"  # <--- NUEVO MÓDULO
         ]
     )
     
@@ -59,26 +68,24 @@ with st.sidebar:
     MODEL_NAME = 'models/gemini-flash-latest' 
     model = genai.GenerativeModel(MODEL_NAME)
 
-# --- 4. FUNCIONES DE LÓGICA (EL CEREBRO) ---
+# --- 4. FUNCIONES DE LÓGICA ---
 
 def apply_hyphenation(text, lang='es'):
-    """
-    NUEVA FUNCIÓN: Inserta guiones suaves para justificación perfecta.
-    """
+    """Inserta guiones suaves (\xad) para justificación perfecta."""
     if not text: return ""
     dic = pyphen.Pyphen(lang=lang)
     words = text.split()
     new_words = []
     for word in words:
-        if len(word) > 6: # Solo silabeamos palabras largas
-            inserted = dic.inserted(word, hyphen='\xad') # \xad es el soft-hyphen
+        if len(word) > 6: 
+            inserted = dic.inserted(word, hyphen='\xad')
             new_words.append(inserted)
         else:
             new_words.append(word)
     return " ".join(new_words)
 
-def fix_irregular_spacing(text):
-    """Limpieza Nuclear original"""
+def nuclear_clean(text):
+    """Elimina tabs, espacios dobles y basura web."""
     if not text: return text
     return " ".join(text.split())
 
@@ -88,7 +95,7 @@ def clean_markdown(text):
     text = re.sub(r'__(.*?)__', r'\1', text)      
     text = re.sub(r'^#+\s*', '', text) 
     if text.strip().startswith("- "): text = text.strip()[2:] 
-    text = fix_irregular_spacing(text)
+    text = nuclear_clean(text)
     return text.strip()
 
 def call_api(prompt, temp=0.7):
@@ -144,17 +151,17 @@ if "Corrector" in selected_module:
                 st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (SUPER POTENCIADO 🚀)
+# MÓDULO 2: MAQUETADOR KDP PRO (FUSIONADO)
 # ==============================================================================
 elif "Maquetador" in selected_module:
     st.header("📏 Maquetador KDP PRO 2.0")
-    st.markdown("Ajusta tamaño, aplica temas visuales y justificación perfecta.")
+    st.markdown("Motor de diseño editorial con Temas, Silabeo y Estilos Pro.")
 
     # --- CONTROLES VISUALES ---
     col1, col2 = st.columns(2)
     with col1:
         size = st.selectbox("Tamaño:", ["6 x 9 pulgadas (Estándar)", "5 x 8 pulgadas", "8.5 x 11 pulgadas"])
-        theme_choice = st.selectbox("🎨 Tema Visual:", list(THEMES.keys())) # NUEVO: Selector de Tema
+        theme_choice = st.selectbox("🎨 Tema Visual:", list(THEMES.keys())) 
     with col2:
         margins = st.radio("Márgenes:", ["Normales", "Espejo (Doble Cara)"])
 
@@ -163,32 +170,31 @@ elif "Maquetador" in selected_module:
     
     col3, col4 = st.columns(2)
     with col3:
-        fix_orphans = st.checkbox("🛡️ Proteger líneas huérfanas/viudas", value=True)
+        fix_orphans = st.checkbox("🛡️ Proteger líneas huérfanas", value=True)
         fix_titles = st.checkbox("📎 Pegar Títulos (Keep with Next)", value=True)
-        pro_start = st.checkbox("✨ Inicio Capítulo Pro (Small Caps)", value=True, help="Aplica estilo elegante al iniciar capítulo.") # NUEVO
+        pro_start = st.checkbox("✨ Inicio Capítulo Pro (Small Caps)", value=True, help="Estilo elegante al iniciar capítulo.")
     with col4:
-        fix_spaces = st.checkbox("☢️ Limpieza Nuclear de Espacios", value=True)
-        justify_text = st.checkbox("📄 Justificar + Silabeo (Hyphenation)", value=True, help="Evita ríos blancos usando guiones.") # NUEVO
-    
+        fix_spaces = st.checkbox("☢️ Limpieza Nuclear", value=True)
+        justify_text = st.checkbox("📄 Justificar + Silabeo (Hyphenation)", value=True, help="Evita ríos blancos.")
+
     uploaded_file = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod2")
 
     if uploaded_file and st.button("🛠️ Procesar Libro"):
         doc = Document(uploaded_file)
-        theme = THEMES[theme_choice] # Cargar configuración del tema elegido
+        theme = THEMES[theme_choice] 
         
-        # 1. AJUSTE DE PÁGINA (PAGE SETUP)
+        # 1. PAGE SETUP
         if "6 x 9" in size: w, h = Inches(6), Inches(9)
         elif "5 x 8" in size: w, h = Inches(5), Inches(8)
         else: w, h = Inches(8.5), Inches(11)
 
         for section in doc.sections:
-            section.page_width = w
-            section.page_height = h
+            section.page_width = w; section.page_height = h
             section.top_margin = Inches(0.75); section.bottom_margin = Inches(0.75)
             section.left_margin = Inches(0.75); section.right_margin = Inches(0.6)
             if "Espejo" in margins: section.mirror_margins = True; section.gutter = Inches(0.13)
 
-        # 2. APLICAR ESTILOS DEL TEMA (FUENTES)
+        # 2. APLICAR TEMA
         style = doc.styles['Normal']
         style.font.name = theme['font']
         style.font.size = Pt(theme['size'])
@@ -197,73 +203,58 @@ elif "Maquetador" in selected_module:
             try:
                 h_style = doc.styles[h]
                 h_style.font.name = theme['header']
-                h_style.font.color.rgb = RGBColor(0, 0, 0) # Negro estricto para KDP
+                h_style.font.color.rgb = RGBColor(0, 0, 0) 
             except: pass
 
-        # 3. PROCESAMIENTO INTELIGENTE DE PÁRRAFOS
+        # 3. PROCESAMIENTO
         count_fixed = 0
         p_bar = st.progress(0)
         total_p = len(doc.paragraphs)
-        
-        previous_was_heading = False # Bandera para detectar inicio de capítulo
+        previous_was_heading = False 
 
         for i, p in enumerate(doc.paragraphs):
             
-            # A. LIMPIEZA NUCLEAR
+            # Limpieza
             if fix_spaces and len(p.text) > 0:
-                original_text = p.text
-                cleaned_text = " ".join(original_text.split()) # Borra basura web
-                if cleaned_text != original_text:
-                    p.text = cleaned_text
+                clean = nuclear_clean(p.text)
+                if clean != p.text:
+                    p.text = clean
                     count_fixed += 1
             
-            # Detectar si es Título
+            # Detección Títulos
             if p.style.name.startswith('Heading'):
                 previous_was_heading = True
                 if fix_titles: p.paragraph_format.keep_with_next = True
             
             else:
-                # Es texto normal (Cuerpo)
+                # Texto Cuerpo
                 if len(p.text) > 2:
-                    
-                    # B. JUSTIFICACIÓN + HYPHENATION (NUEVO)
+                    # Justificación + Hyphenation
                     if justify_text:
                         p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                        # Aplicamos silabeo solo si es texto largo
-                        if len(p.text) > 60:
-                            p.text = apply_hyphenation(p.text, lang='es')
+                        if len(p.text) > 60: p.text = apply_hyphenation(p.text)
 
-                    # C. INICIO CAPÍTULO PRO (SMALL CAPS) (NUEVO)
+                    # Estilo Inicio de Capítulo (Small Caps)
                     if pro_start and previous_was_heading:
                         words = p.text.split()
                         if len(words) > 4:
                             first_phrase = " ".join(words[:4])
                             rest = " ".join(words[4:])
-                            p.text = "" # Limpiamos párrafo
-                            
-                            # Frase inicial en Small Caps (Versalitas)
+                            p.text = "" 
                             run = p.add_run(first_phrase + " ")
                             run.font.name = theme['font']
-                            run.font.small_caps = True 
+                            run.font.small_caps = True  # <--- MAGIA AQUÍ
                             run.bold = True
-                            
-                            # Resto normal
                             p.add_run(rest)
                 
-                previous_was_heading = False # Reset bandera
+                previous_was_heading = False 
 
-            # D. VIUDAS Y HUÉRFANAS
-            if fix_orphans:
-                p.paragraph_format.widow_control = True 
-
+            if fix_orphans: p.paragraph_format.widow_control = True 
             p_bar.progress((i+1)/total_p)
 
         bio = BytesIO(); doc.save(bio)
-        
-        st.success(f"✅ Libro Maquetado con Tema: {theme_choice}")
-        if count_fixed > 0: st.info(f"☢️ Se limpiaron {count_fixed} errores de formato web.")
-            
-        st.download_button("⬇️ Descargar Libro Profesional", bio.getvalue(), "Libro_KDP_Pro.docx")
+        st.success(f"✅ Maquetación completada: {theme_choice}")
+        st.download_button("⬇️ Descargar Libro KDP", bio.getvalue(), "Libro_KDP_Pro.docx")
 
 # ==============================================================================
 # MÓDULO 3: WORKBOOK CLEANER (ORIGINAL)
@@ -276,34 +267,118 @@ elif "Workbook" in selected_module:
 
     if uploaded_file and st.button("🧹 Limpiar Líneas"):
         doc = Document(uploaded_file)
-        count = 0; p_bar = st.progress(0)
+        p_bar = st.progress(0)
         for i, p in enumerate(doc.paragraphs):
             if re.search(f"([_.\-]){{{threshold},}}", p.text):
                 prompt = f"Identify question. Remove lines. Add CTA: '{cta_text}'. Input: '{p.text}'"
                 new_text = call_api(prompt)
-                if new_text != p.text: p.text = new_text; count += 1
+                if new_text != p.text: p.text = new_text
             p_bar.progress((i+1)/len(doc.paragraphs))
         bio = BytesIO(); doc.save(bio)
         st.download_button("⬇️ Descargar eBook", bio.getvalue(), "Ebook_Ready.docx")
 
 # ==============================================================================
-# MÓDULO 4: LIMPIADOR NUCLEAR (ORIGINAL)
+# MÓDULO 4: LIMPIADOR NUCLEAR
 # ==============================================================================
 elif "Limpiador" in selected_module:
     st.header("☢️ Limpiador 'Nuclear' de Formato")
-    st.info("Elimina saltos de línea manuales y espacios web que rompen la justificación.")
-
     uploaded_file = st.file_uploader("Sube docx", type=["docx"], key="mod4")
-    if uploaded_file and st.button("🧹 Limpiar Formato Web"):
+    if uploaded_file and st.button("🧹 Limpiar"):
         doc = Document(uploaded_file)
         count = 0
         for p in doc.paragraphs:
             if p.text:
-                new_text = " ".join(p.text.split())
-                if new_text != p.text:
-                    p.text = new_text
-                    count += 1
-        
-        st.success(f"✅ Se arreglaron {count} párrafos con basura de formato web.")
+                new_text = nuclear_clean(p.text)
+                if new_text != p.text: p.text = new_text; count += 1
+        st.success(f"✅ {count} arreglos realizados.")
         bio = BytesIO(); doc.save(bio)
         st.download_button("⬇️ Descargar Limpio", bio.getvalue(), "Limpio_Nuclear.docx")
+
+# ==============================================================================
+# MÓDULO 5: GENERADOR EPUB (FUSIONADO)
+# ==============================================================================
+elif "Generador EPUB" in selected_module:
+    st.header("⚡ Generador de EPUB Nativo")
+    st.markdown("Convierte DOCX a EPUB con Tabla de Contenidos automática.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        book_title = st.text_input("Título del Libro", "Mi Novela")
+        author_name = st.text_input("Autor", "Indie Author")
+    with col2:
+        lang_code = st.selectbox("Idioma", ["es", "en"])
+        cover_file = st.file_uploader("Portada (JPG) - Opcional", type=["jpg", "jpeg"])
+
+    uploaded_file = st.file_uploader("Sube tu Manuscrito (.docx)", type=["docx"], key="mod5")
+
+    if uploaded_file and st.button("📲 Convertir a EPUB"):
+        
+        # 1. Configuración del Libro
+        book = epub.EpubBook()
+        book.set_identifier(str(uuid.uuid4()))
+        book.set_title(book_title)
+        book.set_language(lang_code)
+        book.add_author(author_name)
+        
+        if cover_file:
+            book.set_cover("cover.jpg", cover_file.read())
+            
+        # 2. Conversión DOCX -> HTML (Mammoth)
+        result = mammoth.convert_to_html(uploaded_file)
+        html_content = result.value
+        
+        # 3. Parsing de Capítulos (BeautifulSoup)
+        soup = BeautifulSoup(html_content, 'html.parser')
+        chapters = []
+        
+        # Detectamos Títulos (h1, h2...)
+        headers = soup.find_all(['h1'])
+        
+        if not headers:
+            st.warning("⚠️ No se detectaron Títulos H1. Se creará un solo capítulo.")
+            c1 = epub.EpubHtml(title="Inicio", file_name="chap_01.xhtml", lang=lang_code)
+            c1.content = html_content
+            book.add_item(c1)
+            chapters.append(c1)
+        else:
+            # Algoritmo de corte de capítulos
+            current_content = ""
+            current_title = "Front Matter"
+            count = 0
+            
+            for element in soup.body.children:
+                elem_str = str(element)
+                if element.name == 'h1':
+                    if current_content.strip():
+                        count += 1
+                        c = epub.EpubHtml(title=current_title, file_name=f"chap_{count}.xhtml", lang=lang_code)
+                        c.content = f"<h1>{current_title}</h1>{current_content}" if count > 0 else current_content
+                        # Añadir CSS básico
+                        c.add_item(epub.EpubItem(uid="style", file_name="style.css", media_type="text/css", content="body{font-family:serif} h1{text-align:center}"))
+                        book.add_item(c)
+                        chapters.append(c)
+                    
+                    current_title = element.get_text()
+                    current_content = ""
+                else:
+                    current_content += elem_str
+            
+            # Último capítulo
+            if current_content.strip():
+                count += 1
+                c = epub.EpubHtml(title=current_title, file_name=f"chap_{count}.xhtml", lang=lang_code)
+                c.content = f"<h1>{current_title}</h1>{current_content}"
+                book.add_item(c)
+                chapters.append(c)
+
+        # 4. Empaquetado final
+        book.toc = tuple(chapters)
+        book.add_item(epub.EpubNcx())
+        book.add_item(epub.EpubNav())
+        book.spine = ['nav'] + chapters
+
+        bio = BytesIO()
+        epub.write_epub(bio, book, {})
+        
+        st.success(f"✅ EPUB Creado con {len(chapters)} capítulos.")
+        st.download_button("⬇️ Descargar EPUB", bio.getvalue(), f"{book_title}.epub")
