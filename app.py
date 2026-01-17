@@ -222,6 +222,20 @@ elif "Maquetador" in selected_module:
                 if fix_titles: 
                     p.paragraph_format.keep_with_next = True
                     p.paragraph_format.page_break_before = True
+
+            if is_style_heading or is_visual_heading:
+                previous_was_heading = True
+                
+                # --- NUEVA MEJORA DE CONEXIÓN ---
+                # Si lo detectamos visualmente, forzamos el Estilo Heading 1
+                # Esto asegura que el Módulo 5 (EPUB) pueda crear el índice después.
+                if is_visual_heading:
+                    p.style = doc.styles['Heading 1'] 
+                # -------------------------------
+
+                if fix_titles: 
+                    p.paragraph_format.keep_with_next = True
+                    p.paragraph_format.page_break_before = True
             
             # C. CUERPO DE TEXTO
             else:
