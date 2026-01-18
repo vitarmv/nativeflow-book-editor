@@ -140,10 +140,10 @@ if "Corrector" in selected_module:
                 st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (V3.3 - ESTILOS REFINADOS)
+# MÓDULO 2: MAQUETADOR KDP PRO (V3.4 - ESTÉTICA PERFECTA)
 # ==============================================================================
 elif "Maquetador" in selected_module:
-    st.header("📏 Maquetador KDP PRO 3.3")
+    st.header("📏 Maquetador KDP PRO 3.4")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -159,7 +159,6 @@ elif "Maquetador" in selected_module:
     with col3:
         fix_titles = st.checkbox("📎 Detectar Títulos", value=True)
         pro_start = st.checkbox("✨ Activar Inicio de Capítulo", value=True)
-        # NUEVO SELECTOR DE ESTILO
         start_style = st.selectbox("Estilo de Inicio:", ["Letra Capital (Big Letter)", "Frase Versalitas (Small Caps)"])
         
     with col4:
@@ -188,23 +187,21 @@ elif "Maquetador" in selected_module:
         style.font.name = theme['font']
         style.font.size = Pt(theme['size'])
         
-        # --- MEJORAS DE ESTILO (AQUÍ ESTÁ LA MAGIA) ---
-        style.paragraph_format.line_spacing = 1.25 # Más aire para leer
-        style.paragraph_format.space_after = Pt(0) # Estilo novela clásico
+        # MEJORA 1: Interlineado cómodo (1.25)
+        style.paragraph_format.line_spacing = 1.25 
+        style.paragraph_format.space_after = Pt(0) 
         
-        # Configurar Títulos (Headings) con Espaciado PRO
+        # MEJORA 2: Configuración de Títulos
         for h in ['Heading 1', 'Heading 2']:
             try:
                 h_style = doc.styles[h]
                 h_style.font.name = theme['header']
-                h_style.font.color.rgb = RGBColor(0, 0, 0) # Negro puro
-                h_style.paragraph_format.space_before = Pt(60) # Aire ARRIBA
-                h_style.paragraph_format.space_after = Pt(30)  # Aire ABAJO
-                h_style.paragraph_format.page_break_before = True
-                h_style.paragraph_format.keep_with_next = True
-                h_style.alignment = WD_ALIGN_PARAGRAPH.CENTER # Centrado
+                h_style.font.color.rgb = RGBColor(0, 0, 0)
+                # Quitamos space_before del estilo porque lo haremos manual para consistencia
+                h_style.paragraph_format.space_before = Pt(0) 
+                h_style.paragraph_format.space_after = Pt(35) # Espacio entre Título y Texto
+                h_style.alignment = WD_ALIGN_PARAGRAPH.CENTER 
             except: pass
-        # -----------------------------------------------
 
         total_p = len(doc.paragraphs)
         p_bar = st.progress(0)
@@ -223,7 +220,7 @@ elif "Maquetador" in selected_module:
             if len(text_clean) < 2:
                 continue 
 
-            # B. DETECTAR TÍTULO (Lógica Unificada)
+            # B. DETECTAR TÍTULO
             is_style_heading = p.style.name.startswith('Heading')
             is_visual_heading = False
             
@@ -238,9 +235,14 @@ elif "Maquetador" in selected_module:
             if is_style_heading or is_visual_heading:
                 previous_was_heading = True
                 
-                # Forzar Estilo Heading 1 para que el EPUB lo detecte luego
-                if is_visual_heading:
-                    p.style = doc.styles['Heading 1']
+                # --- TRUCO DE CONSISTENCIA (EL ARREGLO) ---
+                # Aplicamos estilo Heading 1
+                p.style = doc.styles['Heading 1']
+                
+                # Inyectamos saltos de línea manuales para forzar el "Sink" (bajada)
+                # Word no puede ignorar estos saltos, así que todos los capítulos bajan igual.
+                # \n\n\n equivale visualmente a ~40-50 pt de bajada.
+                p.text = "\n\n\n" + text_clean.upper() # Forzamos mayúsculas también por si acaso
                 
                 if fix_titles: 
                     p.paragraph_format.keep_with_next = True
@@ -253,7 +255,6 @@ elif "Maquetador" in selected_module:
                 # APLICAR ESTILO DE INICIO
                 if pro_start and previous_was_heading:
                     
-                    # OPCIÓN 1: LETRA CAPITAL (BIG LETTER)
                     if "Big Letter" in start_style and len(text_clean) > 1:
                         first_char = text_clean[0]
                         rest_text = text_clean[1:]
@@ -268,7 +269,6 @@ elif "Maquetador" in selected_module:
                         run_rest.font.name = theme['font']
                         run_rest.font.size = Pt(theme['size'])
                     
-                    # OPCIÓN 2: VERSALITAS (SMALL CAPS)
                     elif "Small Caps" in start_style and len(text_clean.split()) > 3:
                         words = text_clean.split()
                         limit = min(3, len(words)) 
