@@ -90,29 +90,54 @@ def add_page_number(paragraph):
     page_run._r.append(t3)
 
 def enable_native_hyphenation(doc):
-    """Activa el silabeo automático en el XML de Word"""
+    """Activa el silabeo automático en Word"""
     settings = doc.settings.element
     hyphenation_zone = OxmlElement('w:autoHyphenation')
     create_attribute(hyphenation_zone, 'w:val', 'true')
     settings.append(hyphenation_zone)
 
 def prevent_runts_in_paragraph(paragraph):
+    text = paragraph.text.strip()
+    if not text or len(text) < 20: return 
+    last_space = text.rfind(' ')
+    if last_space != -1:
+        paragraph.text = text[:last_space] + "\u00A0" + text[last_space+1:]
+
+def delete_paragraph(paragraph):
+    p = paragraph._element
+    p.getparent().remove(p)
+    p._p = p._element = None
+
+def stitch_paragraphs(doc):
     """
-    Une las dos últimas palabras con un espacio de no-separación 
-    para evitar que una palabra corta quede sola al final.
+    V5.0: EL RECONSTRUCTOR
+    Une párrafos que fueron cortados incorrectamente (Hard Returns).
+    Logica: Si un párrafo NO termina en puntuación final (. ! ?), 
+    se debe fusionar con el siguiente.
     """
-    text = paragraph.text
-    if not text or len(text) < 20: return # Ignorar frases muy cortas
-    
-    last_space_index = text.rfind(' ')
-    if last_space_index != -1:
-        # Reconstruir texto con Non-Breaking Space (\u00A0)
-        # NOTA: Esto limpia el formato (negrita/cursiva) de esa frase específica,
-        # pero garantiza que no haya viudas.
-        paragraph.text = text[:last_space_index] + "\u00A0" + text[last_space_index+1:]
+    # Recorremos en reverso para poder fusionar sin romper índices
+    for i in range(len(doc.paragraphs) - 2, -1, -1):
+        p_curr = doc.paragraphs[i]
+        p_next = doc.paragraphs[i+1]
+        
+        text_curr = p_curr.text.strip()
+        text_next = p_next.text.strip()
+        
+        # Ignorar vacíos o títulos
+        if not text_curr or not text_next: continue
+        if p_curr.style.name.startswith('Heading') or p_next.style.name.startswith('Heading'): continue
+        
+        # DETECCIÓN DE CORTE: ¿El párrafo actual termina en letra o coma?
+        # Si NO termina en . ! ? " ”, entonces el siguiente es su continuación.
+        if text_curr[-1] not in ['.', '!', '?', '"', '”', ':']:
+            # Fusionar texto
+            p_curr.text = text_curr + " " + text_next
+            # Borrar el párrafo siguiente (que ahora es parte del actual)
+            delete_paragraph(p_next)
 
 def nuclear_clean(text):
     if not text: return text
+    text = text.replace('\n', ' ').replace('\r', ' ').replace('\v', ' ').replace('\f', ' ')
     return " ".join(text.split())
 
 def clean_markdown(text):
@@ -170,10 +195,10 @@ if "Corrector" in selected_module:
                 st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (V4.3 - EL PERFECCIONISTA)
+# MÓDULO 2: MAQUETADOR KDP PRO (V5.0 - RECONSTRUCTOR)
 # ==============================================================================
 elif "Maquetador" in selected_module:
-    st.header("📏 Maquetador KDP PRO 4.3")
+    st.header("📏 Maquetador KDP PRO 5.0")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -192,10 +217,11 @@ elif "Maquetador" in selected_module:
         start_style = st.selectbox("Estilo de Inicio:", ["Letra Capital (Big Letter)", "Frase Versalitas (Small Caps)"])
         
     with col4:
-        fix_spaces = st.checkbox("☢️ Limpieza Nuclear", value=True)
+        # LA SOLUCIÓN MAGICA ES ESTE CHECKBOX NUEVO:
+        reconstruct = st.checkbox("🔗 Unir párrafos rotos (Reconstructor)", value=True, help="Úsalo si tu texto tiene saltos de línea al final de cada frase (archivos viejos).")
         justify_text = st.checkbox("📄 Justificar + Silabeo", value=True)
         add_numbers = st.checkbox("🔢 Agregar Números de Página", value=True)
-        fix_runts = st.checkbox("🛡️ Evitar palabras sueltas (Runts)", value=True, help="Une las últimas 2 palabras para que no quede una sola.")
+        fix_runts = st.checkbox("🛡️ Evitar palabras sueltas (Runts)", value=True)
 
     uploaded_file = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod2")
 
@@ -203,7 +229,13 @@ elif "Maquetador" in selected_module:
         doc = Document(uploaded_file)
         theme = THEMES[theme_choice] 
         
-        # --- 0. ACTIVAR SILABEO NATIVO ---
+        # --- PASO 0: RECONSTRUCCIÓN DE PÁRRAFOS (LA SOLUCIÓN) ---
+        if reconstruct:
+            with st.spinner("🔗 Reconstruyendo párrafos rotos... (Esto puede tardar unos segundos)"):
+                stitch_paragraphs(doc)
+            st.success("✅ Párrafos unidos correctamente.")
+        # --------------------------------------------------------
+
         if justify_text:
             try: enable_native_hyphenation(doc)
             except: pass
@@ -227,20 +259,17 @@ elif "Maquetador" in selected_module:
                 p_footer.style.font.name = theme['font']
                 p_footer.style.font.size = Pt(10)
 
-        # 2. CONFIGURACIÓN DE ESTILOS (ADN DEL DOCUMENTO)
+        # 2. ESTILOS GLOBALES
         style = doc.styles['Normal']
         style.font.name = theme['font']
         style.font.size = Pt(theme['size'])
         style.paragraph_format.line_spacing = 1.25 
         style.paragraph_format.space_after = Pt(0)
-        # Control de Viudas y Huérfanas (Páginas)
         style.paragraph_format.widow_control = True 
         
-        # --- JUSTIFICACIÓN GLOBAL ---
         if justify_text:
             style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         
-        # Estilos de Título
         for h in ['Heading 1', 'Heading 2']:
             try:
                 h_style = doc.styles[h]
@@ -258,10 +287,6 @@ elif "Maquetador" in selected_module:
         previous_was_heading = False 
 
         for i, p in enumerate(doc.paragraphs):
-            
-            if fix_spaces and len(p.text) > 0:
-                clean = nuclear_clean(p.text)
-                if clean != p.text: p.text = clean
             
             text_clean = p.text.strip()
             
@@ -292,20 +317,14 @@ elif "Maquetador" in selected_module:
             
             # C. CUERPO DE TEXTO
             else:
-                # 1. Corrección de palabras sueltas (Runts)
                 if fix_runts and len(text_clean) > 50:
                     prevent_runts_in_paragraph(p)
 
-                # 2. Re-aplicar justificación por si acaso
                 if justify_text:
                      p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-                # 3. Proceso de Letra Capital
                 if pro_start and previous_was_heading:
                     if "Big Letter" in start_style and len(text_clean) > 1:
-                        # Nota: Si aplicamos prevent_runts antes, el texto ya tiene el espacio pegado.
-                        # Al reescribir p.text aquí, podríamos perderlo, así que hay que tener cuidado.
-                        # Para V4.3, damos prioridad al diseño de inicio sobre el runt del primer párrafo.
                         first_char = text_clean[0]; rest_text = text_clean[1:]
                         p.text = "" 
                         run_big = p.add_run(first_char)
@@ -332,7 +351,7 @@ elif "Maquetador" in selected_module:
             if i % 10 == 0: p_bar.progress((i+1)/total_p)
 
         bio = BytesIO(); doc.save(bio)
-        st.success(f"✅ Libro Maquetado: {theme_choice} (Anti-Runts Activado)")
+        st.success(f"✅ Libro Maquetado: {theme_choice}")
         st.download_button("⬇️ Descargar Libro KDP", bio.getvalue(), "Libro_KDP_Pro.docx")
 
 # ==============================================================================
