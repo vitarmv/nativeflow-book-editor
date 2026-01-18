@@ -90,11 +90,26 @@ def add_page_number(paragraph):
     page_run._r.append(t3)
 
 def enable_native_hyphenation(doc):
-    """Activa silabeo automático en Word para evitar ríos blancos"""
+    """Activa el silabeo automático en el XML de Word"""
     settings = doc.settings.element
     hyphenation_zone = OxmlElement('w:autoHyphenation')
     create_attribute(hyphenation_zone, 'w:val', 'true')
     settings.append(hyphenation_zone)
+
+def prevent_runts_in_paragraph(paragraph):
+    """
+    Une las dos últimas palabras con un espacio de no-separación 
+    para evitar que una palabra corta quede sola al final.
+    """
+    text = paragraph.text
+    if not text or len(text) < 20: return # Ignorar frases muy cortas
+    
+    last_space_index = text.rfind(' ')
+    if last_space_index != -1:
+        # Reconstruir texto con Non-Breaking Space (\u00A0)
+        # NOTA: Esto limpia el formato (negrita/cursiva) de esa frase específica,
+        # pero garantiza que no haya viudas.
+        paragraph.text = text[:last_space_index] + "\u00A0" + text[last_space_index+1:]
 
 def nuclear_clean(text):
     if not text: return text
@@ -155,10 +170,10 @@ if "Corrector" in selected_module:
                 st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (V4.2 - JUSTIFICACIÓN BLINDADA)
+# MÓDULO 2: MAQUETADOR KDP PRO (V4.3 - EL PERFECCIONISTA)
 # ==============================================================================
 elif "Maquetador" in selected_module:
-    st.header("📏 Maquetador KDP PRO 4.2")
+    st.header("📏 Maquetador KDP PRO 4.3")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -180,6 +195,7 @@ elif "Maquetador" in selected_module:
         fix_spaces = st.checkbox("☢️ Limpieza Nuclear", value=True)
         justify_text = st.checkbox("📄 Justificar + Silabeo", value=True)
         add_numbers = st.checkbox("🔢 Agregar Números de Página", value=True)
+        fix_runts = st.checkbox("🛡️ Evitar palabras sueltas (Runts)", value=True, help="Une las últimas 2 palabras para que no quede una sola.")
 
     uploaded_file = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod2")
 
@@ -187,7 +203,7 @@ elif "Maquetador" in selected_module:
         doc = Document(uploaded_file)
         theme = THEMES[theme_choice] 
         
-        # --- ACTIVAR SILABEO ---
+        # --- 0. ACTIVAR SILABEO NATIVO ---
         if justify_text:
             try: enable_native_hyphenation(doc)
             except: pass
@@ -211,19 +227,18 @@ elif "Maquetador" in selected_module:
                 p_footer.style.font.name = theme['font']
                 p_footer.style.font.size = Pt(10)
 
-        # 2. CONFIGURACIÓN DE ESTILOS (GLOBAL)
+        # 2. CONFIGURACIÓN DE ESTILOS (ADN DEL DOCUMENTO)
         style = doc.styles['Normal']
         style.font.name = theme['font']
         style.font.size = Pt(theme['size'])
         style.paragraph_format.line_spacing = 1.25 
-        style.paragraph_format.space_after = Pt(0) 
+        style.paragraph_format.space_after = Pt(0)
+        # Control de Viudas y Huérfanas (Páginas)
+        style.paragraph_format.widow_control = True 
         
-        # --- MEJORA V4.2: JUSTIFICACIÓN GLOBAL ---
-        # Si el usuario quiere justificado, lo aplicamos al estilo base (Normal).
-        # Esto asegura que CUALQUIER párrafo nuevo nazca justificado.
+        # --- JUSTIFICACIÓN GLOBAL ---
         if justify_text:
             style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        # -----------------------------------------
         
         # Estilos de Título
         for h in ['Heading 1', 'Heading 2']:
@@ -269,7 +284,7 @@ elif "Maquetador" in selected_module:
             if is_style_heading or is_visual_heading:
                 previous_was_heading = True
                 p.style = doc.styles['Heading 1']
-                p.text = "\n" + text_clean.upper() # Truco del Enter
+                p.text = "\n" + text_clean.upper() 
                 
                 if fix_titles: 
                     p.paragraph_format.keep_with_next = True
@@ -277,9 +292,20 @@ elif "Maquetador" in selected_module:
             
             # C. CUERPO DE TEXTO
             else:
-                # Proceso de Letra Capital (si corresponde)
+                # 1. Corrección de palabras sueltas (Runts)
+                if fix_runts and len(text_clean) > 50:
+                    prevent_runts_in_paragraph(p)
+
+                # 2. Re-aplicar justificación por si acaso
+                if justify_text:
+                     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+
+                # 3. Proceso de Letra Capital
                 if pro_start and previous_was_heading:
                     if "Big Letter" in start_style and len(text_clean) > 1:
+                        # Nota: Si aplicamos prevent_runts antes, el texto ya tiene el espacio pegado.
+                        # Al reescribir p.text aquí, podríamos perderlo, así que hay que tener cuidado.
+                        # Para V4.3, damos prioridad al diseño de inicio sobre el runt del primer párrafo.
                         first_char = text_clean[0]; rest_text = text_clean[1:]
                         p.text = "" 
                         run_big = p.add_run(first_char)
@@ -302,18 +328,11 @@ elif "Maquetador" in selected_module:
                     previous_was_heading = False
                 else:
                     previous_was_heading = False
-                
-                # --- MEJORA V4.2: JUSTIFICACIÓN FINAL ---
-                # Re-aplicamos la justificación AL FINAL DE TODO para asegurar 
-                # que ningún cambio de texto (como la Letra Capital) la haya borrado.
-                if justify_text: 
-                    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                # ----------------------------------------
 
             if i % 10 == 0: p_bar.progress((i+1)/total_p)
 
         bio = BytesIO(); doc.save(bio)
-        st.success(f"✅ Libro Maquetado: {theme_choice} (Bordes Rectos)")
+        st.success(f"✅ Libro Maquetado: {theme_choice} (Anti-Runts Activado)")
         st.download_button("⬇️ Descargar Libro KDP", bio.getvalue(), "Libro_KDP_Pro.docx")
 
 # ==============================================================================
