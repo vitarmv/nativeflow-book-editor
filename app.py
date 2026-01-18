@@ -2,6 +2,7 @@ import streamlit as st
 from docx import Document
 from docx.shared import Inches, Mm, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.oxml import OxmlElement, ns # Necesario para números de página
 import google.generativeai as genai
 from io import BytesIO
 import time
@@ -68,18 +69,28 @@ with st.sidebar:
 
 # --- 4. FUNCIONES AUXILIARES ---
 
-def apply_hyphenation(text, lang='es'):
-    if not text: return ""
-    dic = pyphen.Pyphen(lang=lang)
-    words = text.split()
-    new_words = []
-    for word in words:
-        if len(word) > 7: 
-            inserted = dic.inserted(word, hyphen='\xad')
-            new_words.append(inserted)
-        else:
-            new_words.append(word)
-    return " ".join(new_words)
+def create_element(name):
+    return OxmlElement(name)
+
+def create_attribute(element, name, value):
+    element.set(ns.qn(name), value)
+
+def add_page_number(paragraph):
+    """Función avanzada para insertar campo de número de página en XML"""
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    page_run = paragraph.add_run()
+    t1 = create_element('w:fldChar')
+    create_attribute(t1, 'w:fldCharType', 'begin')
+    page_run._r.append(t1)
+    
+    t2 = create_element('w:instrText')
+    create_attribute(t2, 'xml:space', 'preserve')
+    t2.text = "PAGE"
+    page_run._r.append(t2)
+    
+    t3 = create_element('w:fldChar')
+    create_attribute(t3, 'w:fldCharType', 'end')
+    page_run._r.append(t3)
 
 def nuclear_clean(text):
     if not text: return text
@@ -140,10 +151,10 @@ if "Corrector" in selected_module:
                 st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (V3.5 - HUNDIMIENTO PERFECTO)
+# MÓDULO 2: MAQUETADOR KDP PRO (V4.0 - CON NÚMEROS DE PÁGINA)
 # ==============================================================================
 elif "Maquetador" in selected_module:
-    st.header("📏 Maquetador KDP PRO 3.5")
+    st.header("📏 Maquetador KDP PRO 4.0")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -164,6 +175,7 @@ elif "Maquetador" in selected_module:
     with col4:
         fix_spaces = st.checkbox("☢️ Limpieza Nuclear", value=True)
         justify_text = st.checkbox("📄 Justificar Texto", value=True)
+        add_numbers = st.checkbox("🔢 Agregar Números de Página", value=True) # NUEVO CHECKBOX
 
     uploaded_file = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod2")
 
@@ -181,8 +193,18 @@ elif "Maquetador" in selected_module:
             section.top_margin = Inches(0.75); section.bottom_margin = Inches(0.75)
             section.left_margin = Inches(0.8); section.right_margin = Inches(0.6)
             if "Espejo" in margins: section.mirror_margins = True; section.gutter = Inches(0.15)
+            
+            # --- NUEVO: INSERTAR NÚMEROS DE PÁGINA ---
+            if add_numbers:
+                footer = section.footer
+                p_footer = footer.paragraphs[0]
+                p_footer.text = "" # Limpiar footer previo
+                add_page_number(p_footer)
+                p_footer.style.font.name = theme['font']
+                p_footer.style.font.size = Pt(10)
+            # -----------------------------------------
 
-        # 2. CONFIGURACIÓN DE ESTILOS (Calibración Fina)
+        # 2. CONFIGURACIÓN DE ESTILOS
         style = doc.styles['Normal']
         style.font.name = theme['font']
         style.font.size = Pt(theme['size'])
@@ -195,13 +217,8 @@ elif "Maquetador" in selected_module:
                 h_style = doc.styles[h]
                 h_style.font.name = theme['header']
                 h_style.font.color.rgb = RGBColor(0, 0, 0)
-                
-                # --- CALIBRACIÓN DE ESPACIO ---
-                # Space Before: Lo ponemos en 0 porque usaremos el "truco del enter" para consistencia.
                 h_style.paragraph_format.space_before = Pt(0) 
-                # Space After: Espacio entre título y texto (aprox 1 cm).
                 h_style.paragraph_format.space_after = Pt(30) 
-                
                 h_style.alignment = WD_ALIGN_PARAGRAPH.CENTER 
                 h_style.paragraph_format.page_break_before = True
                 h_style.paragraph_format.keep_with_next = True
@@ -237,14 +254,7 @@ elif "Maquetador" in selected_module:
 
             if is_style_heading or is_visual_heading:
                 previous_was_heading = True
-                
-                # Forzar Estilo Heading 1
                 p.style = doc.styles['Heading 1']
-                
-                # --- TRUCO DE CONSISTENCIA DE ALTURA ---
-                # Usamos SOLO UN salto de línea (\n).
-                # Esto obliga a Word a bajar el título una línea, superando el bug del margen superior.
-                # Resultado: Título limpio, no pegado al borde, igual en todas las páginas.
                 p.text = "\n" + text_clean.upper() 
                 
                 if fix_titles: 
@@ -256,40 +266,25 @@ elif "Maquetador" in selected_module:
                 if justify_text: p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                 
                 if pro_start and previous_was_heading:
-                    
                     if "Big Letter" in start_style and len(text_clean) > 1:
-                        first_char = text_clean[0]
-                        rest_text = text_clean[1:]
-                        
+                        first_char = text_clean[0]; rest_text = text_clean[1:]
                         p.text = "" 
                         run_big = p.add_run(first_char)
                         run_big.font.name = theme['header'] 
                         run_big.font.size = Pt(theme['size'] + 5) 
                         run_big.bold = True
-                        
                         run_rest = p.add_run(rest_text)
                         run_rest.font.name = theme['font']
                         run_rest.font.size = Pt(theme['size'])
-                    
                     elif "Small Caps" in start_style and len(text_clean.split()) > 3:
-                        words = text_clean.split()
-                        limit = min(3, len(words)) 
-                        first_phrase = " ".join(words[:limit])
-                        rest = " ".join(words[limit:])
-                        
+                        words = text_clean.split(); limit = min(3, len(words)) 
+                        first_phrase = " ".join(words[:limit]); rest = " ".join(words[limit:])
                         p.text = ""
                         run = p.add_run(first_phrase + " ")
-                        run.font.name = theme['font']
-                        run.font.small_caps = True
-                        run.bold = True
-                        
+                        run.font.name = theme['font']; run.font.small_caps = True; run.bold = True
                         run_rest = p.add_run(rest)
-                        run_rest.font.name = theme['font']
-                        run_rest.font.small_caps = False
-                        run_rest.bold = False
-
+                        run_rest.font.name = theme['font']; run_rest.font.small_caps = False; run_rest.bold = False
                     previous_was_heading = False
-                
                 else:
                     previous_was_heading = False
 
