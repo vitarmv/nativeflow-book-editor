@@ -140,10 +140,10 @@ if "Corrector" in selected_module:
                 st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (V3.4 - ESTÉTICA PERFECTA)
+# MÓDULO 2: MAQUETADOR KDP PRO (V3.5 - HUNDIMIENTO PERFECTO)
 # ==============================================================================
 elif "Maquetador" in selected_module:
-    st.header("📏 Maquetador KDP PRO 3.4")
+    st.header("📏 Maquetador KDP PRO 3.5")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -182,25 +182,29 @@ elif "Maquetador" in selected_module:
             section.left_margin = Inches(0.8); section.right_margin = Inches(0.6)
             if "Espejo" in margins: section.mirror_margins = True; section.gutter = Inches(0.15)
 
-        # 2. PROCESAMIENTO Y ESTILOS
+        # 2. CONFIGURACIÓN DE ESTILOS (Calibración Fina)
         style = doc.styles['Normal']
         style.font.name = theme['font']
         style.font.size = Pt(theme['size'])
-        
-        # MEJORA 1: Interlineado cómodo (1.25)
         style.paragraph_format.line_spacing = 1.25 
         style.paragraph_format.space_after = Pt(0) 
         
-        # MEJORA 2: Configuración de Títulos
+        # Estilos de Título
         for h in ['Heading 1', 'Heading 2']:
             try:
                 h_style = doc.styles[h]
                 h_style.font.name = theme['header']
                 h_style.font.color.rgb = RGBColor(0, 0, 0)
-                # Quitamos space_before del estilo porque lo haremos manual para consistencia
+                
+                # --- CALIBRACIÓN DE ESPACIO ---
+                # Space Before: Lo ponemos en 0 porque usaremos el "truco del enter" para consistencia.
                 h_style.paragraph_format.space_before = Pt(0) 
-                h_style.paragraph_format.space_after = Pt(35) # Espacio entre Título y Texto
+                # Space After: Espacio entre título y texto (aprox 1 cm).
+                h_style.paragraph_format.space_after = Pt(30) 
+                
                 h_style.alignment = WD_ALIGN_PARAGRAPH.CENTER 
+                h_style.paragraph_format.page_break_before = True
+                h_style.paragraph_format.keep_with_next = True
             except: pass
 
         total_p = len(doc.paragraphs)
@@ -209,7 +213,6 @@ elif "Maquetador" in selected_module:
 
         for i, p in enumerate(doc.paragraphs):
             
-            # Limpieza
             if fix_spaces and len(p.text) > 0:
                 clean = nuclear_clean(p.text)
                 if clean != p.text: p.text = clean
@@ -235,14 +238,14 @@ elif "Maquetador" in selected_module:
             if is_style_heading or is_visual_heading:
                 previous_was_heading = True
                 
-                # --- TRUCO DE CONSISTENCIA (EL ARREGLO) ---
-                # Aplicamos estilo Heading 1
+                # Forzar Estilo Heading 1
                 p.style = doc.styles['Heading 1']
                 
-                # Inyectamos saltos de línea manuales para forzar el "Sink" (bajada)
-                # Word no puede ignorar estos saltos, así que todos los capítulos bajan igual.
-                # \n\n\n equivale visualmente a ~40-50 pt de bajada.
-                p.text = "\n\n\n" + text_clean.upper() # Forzamos mayúsculas también por si acaso
+                # --- TRUCO DE CONSISTENCIA DE ALTURA ---
+                # Usamos SOLO UN salto de línea (\n).
+                # Esto obliga a Word a bajar el título una línea, superando el bug del margen superior.
+                # Resultado: Título limpio, no pegado al borde, igual en todas las páginas.
+                p.text = "\n" + text_clean.upper() 
                 
                 if fix_titles: 
                     p.paragraph_format.keep_with_next = True
@@ -252,7 +255,6 @@ elif "Maquetador" in selected_module:
             else:
                 if justify_text: p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                 
-                # APLICAR ESTILO DE INICIO
                 if pro_start and previous_was_heading:
                     
                     if "Big Letter" in start_style and len(text_clean) > 1:
