@@ -10,7 +10,6 @@ import os
 import re
 import uuid
 import itertools
-import copy 
 
 # --- LIBRERÍAS PRO ---
 import pyphen  
@@ -38,7 +37,7 @@ THEMES = {
     "No Ficción / Negocios": {"font": "Arial", "header": "Arial", "size": 10}
 }
 
-# --- 3. BARRA LATERAL (CORREGIDA) ---
+# --- 3. BARRA LATERAL ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3145/3145765.png", width=80)
     st.title("Centro de Mando")
@@ -53,7 +52,6 @@ with st.sidebar:
         
     st.divider()
     
-    # MENÚ PRINCIPAL
     selected_module = st.radio(
         "Selecciona Herramienta:",
         [
@@ -117,6 +115,7 @@ def stitch_paragraphs(doc):
         text_next = p_next.text.strip()
         if not text_curr or not text_next: continue
         if p_curr.style.name.startswith('Heading') or p_next.style.name.startswith('Heading'): continue
+        
         if text_curr[-1] not in ['.', '!', '?', '"', '”', ':']:
             p_curr.text = text_curr + " " + text_next
             delete_paragraph(p_next)
@@ -143,9 +142,9 @@ def call_api(prompt, temp=0.7):
     return "[ERROR API]"
 
 # ==============================================================================
-# MÓDULO 1: CORRECTOR (COMPLETO)
+# MÓDULO 1: CORRECTOR
 # ==============================================================================
-if "1." in selected_module: # Detecta "1. 💎 Auditor..."
+if "Corrector" in selected_module:
     st.header("💎 Corrector de Estilo & Auditoría")
     uploaded_file = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod1")
 
@@ -181,10 +180,10 @@ if "1." in selected_module: # Detecta "1. 💎 Auditor..."
                 st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (V5.6)
+# MÓDULO 2: MAQUETADOR KDP PRO (V5.0 - RECONSTRUCTOR)
 # ==============================================================================
-elif "2." in selected_module: # Detecta "2. 📏 Maquetador..."
-    st.header("📏 Maquetador KDP PRO 5.6")
+elif "Maquetador" in selected_module:
+    st.header("📏 Maquetador KDP PRO 5.0")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -200,7 +199,6 @@ elif "2." in selected_module: # Detecta "2. 📏 Maquetador..."
     with col3:
         fix_titles = st.checkbox("📎 Detectar Títulos", value=True)
         pro_start = st.checkbox("✨ Activar Inicio de Capítulo", value=True)
-        # IMPORTANTE: Los valores deben coincidir con la lógica de abajo
         start_style = st.selectbox("Estilo de Inicio:", ["Letra Capital (Big Letter)", "Frase Versalitas (Small Caps)"])
         
     with col4:
@@ -215,15 +213,17 @@ elif "2." in selected_module: # Detecta "2. 📏 Maquetador..."
         doc = Document(uploaded_file)
         theme = THEMES[theme_choice] 
         
+        # 1. RECONSTRUCCIÓN
         if reconstruct:
             with st.spinner("🔗 Reconstruyendo..."):
                 stitch_paragraphs(doc)
         
+        # 2. SILABEO
         if justify_text:
             try: enable_native_hyphenation(doc)
             except: pass
         
-        # PAGE SETUP
+        # 3. PAGE SETUP
         if "6 x 9" in size: w, h = Inches(6), Inches(9)
         elif "5 x 8" in size: w, h = Inches(5), Inches(8)
         else: w, h = Inches(8.5), Inches(11)
@@ -241,6 +241,7 @@ elif "2." in selected_module: # Detecta "2. 📏 Maquetador..."
                 p_footer.style.font.name = theme['font']
                 p_footer.style.font.size = Pt(10)
 
+        # 4. ESTILOS
         style = doc.styles['Normal']
         style.font.name = theme['font']
         style.font.size = Pt(theme['size'])
@@ -264,7 +265,6 @@ elif "2." in selected_module: # Detecta "2. 📏 Maquetador..."
         total_p = len(doc.paragraphs)
         p_bar = st.progress(0)
         previous_was_heading = False 
-        first_paragraph_found = False
 
         for i, p in enumerate(doc.paragraphs):
             text_clean = p.text.strip()
@@ -272,6 +272,7 @@ elif "2." in selected_module: # Detecta "2. 📏 Maquetador..."
 
             is_style_heading = p.style.name.startswith('Heading')
             is_visual_heading = False
+            
             if len(text_clean) < 60:
                 if re.match(r'^(chapter|cap[íi]tulo|part|parte|pr[óo]logo|prologue|intro)\b', text_clean, re.IGNORECASE):
                     is_visual_heading = True
@@ -281,24 +282,15 @@ elif "2." in selected_module: # Detecta "2. 📏 Maquetador..."
             if is_style_heading or is_visual_heading:
                 previous_was_heading = True
                 p.style = doc.styles['Heading 1']
-                
-                if not first_paragraph_found:
-                    p.text = text_clean.upper() 
-                    first_paragraph_found = True
-                    p.paragraph_format.page_break_before = False 
-                else:
-                    p.text = "\n" + text_clean.upper() 
-                    if fix_titles: 
-                        p.paragraph_format.page_break_before = True
-                        p.paragraph_format.keep_with_next = True
+                p.text = "\n" + text_clean.upper() 
+                if fix_titles: 
+                    p.paragraph_format.keep_with_next = True
+                    p.paragraph_format.page_break_before = True
             else:
-                if not first_paragraph_found: first_paragraph_found = True 
-                
                 if fix_runts and len(text_clean) > 50: prevent_runts_in_paragraph(p)
                 if justify_text: p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
                 if pro_start and previous_was_heading:
-                    # CORRECCIÓN: Detectamos si la opción elegida contiene "Big Letter"
                     if "Big Letter" in start_style and len(text_clean) > 1:
                         first_char = text_clean[0]; rest_text = text_clean[1:]
                         p.text = "" 
@@ -329,7 +321,7 @@ elif "2." in selected_module: # Detecta "2. 📏 Maquetador..."
 # ==============================================================================
 # MÓDULO 3: WORKBOOK
 # ==============================================================================
-elif "3." in selected_module: # Detecta "3. Workbook..."
+elif "Workbook" in selected_module:
     st.header("📲 Workbook Cleaner")
     cta_text = st.text_area("Texto CTA:", "🛑 (Ejercicio): Completa esto en tu Cuaderno.", height=80)
     uploaded_file = st.file_uploader("Sube manuscrito", key="mod3")
@@ -343,7 +335,7 @@ elif "3." in selected_module: # Detecta "3. Workbook..."
 # ==============================================================================
 # MÓDULO 4: LIMPIADOR
 # ==============================================================================
-elif "4." in selected_module: # Detecta "4. Limpiador..."
+elif "Limpiador" in selected_module:
     st.header("☢️ Limpiador 'Nuclear'")
     uploaded_file = st.file_uploader("Sube docx", key="mod4")
     if uploaded_file and st.button("Limpiar"):
@@ -354,10 +346,10 @@ elif "4." in selected_module: # Detecta "4. Limpiador..."
         st.download_button("⬇️ Descargar", bio.getvalue(), "Limpio.docx")
 
 # ==============================================================================
-# MÓDULO 5: GENERADOR EPUB (V5.6)
+# MÓDULO 5: GENERADOR EPUB (V5.1 - CORREGIDO)
 # ==============================================================================
-elif "5." in selected_module: # Detecta "5. Generador EPUB"
-    st.header("⚡ Generador EPUB 5.6")
+elif "Generador EPUB" in selected_module:
+    st.header("⚡ Generador EPUB 5.1")
     uploaded_file = st.file_uploader("Sube Manuscrito (Usa el archivo del Módulo 2)", key="mod5")
     
     col1, col2 = st.columns(2)
@@ -367,66 +359,52 @@ elif "5." in selected_module: # Detecta "5. Generador EPUB"
         author_name = st.text_input("Autor", "Autor")
     
     if uploaded_file and st.button("Convertir"):
-        # 1. LIMPIEZA
-        doc_temp = Document(uploaded_file)
-        for p in doc_temp.paragraphs:
-            if p.style.name.startswith('Heading'):
-                p.text = p.text.replace('\n', '').strip() 
-        
-        buffer_limpio = BytesIO()
-        doc_temp.save(buffer_limpio)
-        buffer_limpio.seek(0)
-
-        # 2. CONFIGURACIÓN
+        uploaded_file.seek(0) # Seguridad extra
         book = epub.EpubBook()
         book.set_identifier(str(uuid.uuid4()))
         book.set_title(book_title)
         book.set_language("es")
         book.add_author(author_name)
         
-        # 3. MAPA
-        style_map = "p[style-name='Heading 1'] => h1:fresh"
-        
-        # 4. CONVERSIÓN
-        result = mammoth.convert_to_html(buffer_limpio, style_map=style_map)
+        # Conversión a HTML
+        result = mammoth.convert_to_html(uploaded_file)
         soup = BeautifulSoup(result.value, 'html.parser')
         
+        # --- CORRECCIÓN V5.1: Manejo robusto de BODY ---
+        # Si soup.body es None, usamos soup directamente
         content_container = soup.body if soup.body else soup
-        chapters = []
-        headers = soup.find_all('h1')
-        
-        # 5. CSS
-        css_style = """
-        <style>
-            h1 { margin-top: 3em !important; text-align: center; page-break-before: always; color: black;}
-            p { text-align: justify; text-indent: 1em; margin-bottom: 0em; line-height: 1.6em; }
-        </style>
-        """
+        # -----------------------------------------------
 
+        chapters = []
+        headers = soup.find_all(['h1'])
+        
         if not headers:
             c = epub.EpubHtml(title="Inicio", file_name="chap_1.xhtml")
-            c.content = css_style + str(content_container) 
+            c.content = str(content_container) # Convertir a string el contenido completo
             book.add_item(c); chapters.append(c)
         else:
             current_content = ""; current_title = "Inicio"; count = 0
             
+            # Iteramos sobre los hijos del contenedor seguro
             for elem in content_container.children:
                 elem_str = str(elem)
                 if elem.name == 'h1':
                     if current_content.strip():
                         count += 1
                         c = epub.EpubHtml(title=current_title, file_name=f"chap_{count}.xhtml")
-                        c.content = css_style + f"<h1>{current_title}</h1>{current_content}" if count > 1 else css_style + current_content
+                        # Aseguramos el H1 dentro del capítulo
+                        c.content = f"<h1>{current_title}</h1>{current_content}" if count > 1 else current_content
                         book.add_item(c); chapters.append(c)
                     current_title = elem.get_text()
                     current_content = ""
                 else:
                     current_content += elem_str
             
+            # Último capítulo
             if current_content.strip():
                 count += 1
                 c = epub.EpubHtml(title=current_title, file_name=f"chap_{count}.xhtml")
-                c.content = css_style + f"<h1>{current_title}</h1>{current_content}"
+                c.content = f"<h1>{current_title}</h1>{current_content}"
                 book.add_item(c); chapters.append(c)
 
         book.toc = tuple(chapters)
@@ -434,5 +412,5 @@ elif "5." in selected_module: # Detecta "5. Generador EPUB"
         book.spine = ['nav'] + chapters
         
         bio = BytesIO(); epub.write_epub(bio, book, {})
-        st.success("✅ EPUB generado (Definitivo).")
+        st.success("✅ EPUB generado con éxito.")
         st.download_button("⬇️ Descargar EPUB", bio.getvalue(), f"{book_title}.epub")
