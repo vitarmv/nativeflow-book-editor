@@ -2,7 +2,7 @@ import streamlit as st
 from docx import Document
 from docx.shared import Inches, Mm, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
-from docx.oxml import OxmlElement, ns # Necesario para números de página
+from docx.oxml import OxmlElement, ns 
 import google.generativeai as genai
 from io import BytesIO
 import time
@@ -76,7 +76,7 @@ def create_attribute(element, name, value):
     element.set(ns.qn(name), value)
 
 def add_page_number(paragraph):
-    """Función avanzada para insertar campo de número de página en XML"""
+    """Inserta campo de número de página."""
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     page_run = paragraph.add_run()
     t1 = create_element('w:fldChar')
@@ -91,6 +91,16 @@ def add_page_number(paragraph):
     t3 = create_element('w:fldChar')
     create_attribute(t3, 'w:fldCharType', 'end')
     page_run._r.append(t3)
+
+def enable_native_hyphenation(doc):
+    """
+    Activa el motor de silabeo nativo de Word en el XML del documento.
+    Esto permite que Word corte las palabras automáticamente para justificar mejor.
+    """
+    settings = doc.settings.element
+    hyphenation_zone = OxmlElement('w:autoHyphenation')
+    create_attribute(hyphenation_zone, 'w:val', 'true')
+    settings.append(hyphenation_zone)
 
 def nuclear_clean(text):
     if not text: return text
@@ -151,10 +161,10 @@ if "Corrector" in selected_module:
                 st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (V4.0 - CON NÚMEROS DE PÁGINA)
+# MÓDULO 2: MAQUETADOR KDP PRO (V4.1 - JUSTIFICACIÓN PERFECTA)
 # ==============================================================================
 elif "Maquetador" in selected_module:
-    st.header("📏 Maquetador KDP PRO 4.0")
+    st.header("📏 Maquetador KDP PRO 4.1")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -174,14 +184,22 @@ elif "Maquetador" in selected_module:
         
     with col4:
         fix_spaces = st.checkbox("☢️ Limpieza Nuclear", value=True)
-        justify_text = st.checkbox("📄 Justificar Texto", value=True)
-        add_numbers = st.checkbox("🔢 Agregar Números de Página", value=True) # NUEVO CHECKBOX
+        justify_text = st.checkbox("📄 Justificar + Silabeo (Hyphenation)", value=True, help="Activa el corte de palabras de Word para evitar ríos blancos.")
+        add_numbers = st.checkbox("🔢 Agregar Números de Página", value=True)
 
     uploaded_file = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod2")
 
     if uploaded_file and st.button("🛠️ Procesar Libro"):
         doc = Document(uploaded_file)
         theme = THEMES[theme_choice] 
+        
+        # --- ACTIVAR SILABEO NATIVO DE WORD ---
+        if justify_text:
+            try:
+                enable_native_hyphenation(doc)
+            except:
+                st.warning("No se pudo activar el silabeo automático en el XML.")
+        # --------------------------------------
         
         # 1. PAGE SETUP
         if "6 x 9" in size: w, h = Inches(6), Inches(9)
@@ -194,15 +212,13 @@ elif "Maquetador" in selected_module:
             section.left_margin = Inches(0.8); section.right_margin = Inches(0.6)
             if "Espejo" in margins: section.mirror_margins = True; section.gutter = Inches(0.15)
             
-            # --- NUEVO: INSERTAR NÚMEROS DE PÁGINA ---
             if add_numbers:
                 footer = section.footer
                 p_footer = footer.paragraphs[0]
-                p_footer.text = "" # Limpiar footer previo
+                p_footer.text = "" 
                 add_page_number(p_footer)
                 p_footer.style.font.name = theme['font']
                 p_footer.style.font.size = Pt(10)
-            # -----------------------------------------
 
         # 2. CONFIGURACIÓN DE ESTILOS
         style = doc.styles['Normal']
@@ -291,7 +307,7 @@ elif "Maquetador" in selected_module:
             if i % 10 == 0: p_bar.progress((i+1)/total_p)
 
         bio = BytesIO(); doc.save(bio)
-        st.success(f"✅ Libro Maquetado: {theme_choice}")
+        st.success(f"✅ Libro Maquetado: {theme_choice} (Silabeo Activado)")
         st.download_button("⬇️ Descargar Libro KDP", bio.getvalue(), "Libro_KDP_Pro.docx")
 
 # ==============================================================================
