@@ -10,7 +10,6 @@ import os
 import re
 import uuid
 import itertools
-import copy # Necesario para clonar el doc en memoria para el EPUB
 
 # --- LIBRERÍAS PRO ---
 import pyphen  
@@ -116,6 +115,7 @@ def stitch_paragraphs(doc):
         text_next = p_next.text.strip()
         if not text_curr or not text_next: continue
         if p_curr.style.name.startswith('Heading') or p_next.style.name.startswith('Heading'): continue
+        
         if text_curr[-1] not in ['.', '!', '?', '"', '”', ':']:
             p_curr.text = text_curr + " " + text_next
             delete_paragraph(p_next)
@@ -180,10 +180,10 @@ if "Corrector" in selected_module:
                 st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (V5.3 - EL ECUALIZADOR)
+# MÓDULO 2: MAQUETADOR KDP PRO (V5.0 - RECONSTRUCTOR)
 # ==============================================================================
 elif "Maquetador" in selected_module:
-    st.header("📏 Maquetador KDP PRO 5.3")
+    st.header("📏 Maquetador KDP PRO 5.0")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -255,7 +255,6 @@ elif "Maquetador" in selected_module:
                 h_style = doc.styles[h]
                 h_style.font.name = theme['header']
                 h_style.font.color.rgb = RGBColor(0, 0, 0)
-                # IMPORTANTE: Space Before en 0. Usamos el truco del Enter (\n) para consistencia.
                 h_style.paragraph_format.space_before = Pt(0) 
                 h_style.paragraph_format.space_after = Pt(30) 
                 h_style.alignment = WD_ALIGN_PARAGRAPH.CENTER 
@@ -266,14 +265,6 @@ elif "Maquetador" in selected_module:
         total_p = len(doc.paragraphs)
         p_bar = st.progress(0)
         previous_was_heading = False 
-        
-        # --- DETECCIÓN DEL PRIMER PÁRRAFO ---
-        # El primer párrafo del documento NUNCA tiene salto de página anterior.
-        # Por tanto, no sufre el bug de Word y baja correctamente.
-        # Los siguientes sí sufren el bug y necesitan el \n para compensar.
-        # Si ponemos \n al primero, baja DOBLE (Margen real + \n).
-        
-        first_paragraph_found = False
 
         for i, p in enumerate(doc.paragraphs):
             text_clean = p.text.strip()
@@ -281,6 +272,7 @@ elif "Maquetador" in selected_module:
 
             is_style_heading = p.style.name.startswith('Heading')
             is_visual_heading = False
+            
             if len(text_clean) < 60:
                 if re.match(r'^(chapter|cap[íi]tulo|part|parte|pr[óo]logo|prologue|intro)\b', text_clean, re.IGNORECASE):
                     is_visual_heading = True
@@ -290,24 +282,11 @@ elif "Maquetador" in selected_module:
             if is_style_heading or is_visual_heading:
                 previous_was_heading = True
                 p.style = doc.styles['Heading 1']
-                
-                # --- LÓGICA V5.3: ECUALIZACIÓN DE TÍTULOS ---
-                if not first_paragraph_found:
-                    # ES EL PRIMER CAPÍTULO: No usamos \n porque el margen superior ya funciona.
-                    p.text = text_clean.upper() 
-                    first_paragraph_found = True
-                    # Quitamos el page_break_before del primero para evitar hoja en blanco
-                    p.paragraph_format.page_break_before = False 
-                else:
-                    # SON LOS DEMÁS CAPÍTULOS: Usamos \n para vencer al bug del salto de página.
-                    p.text = "\n" + text_clean.upper() 
-                    if fix_titles: 
-                        p.paragraph_format.page_break_before = True
-                        p.paragraph_format.keep_with_next = True
-                # ---------------------------------------------
+                p.text = "\n" + text_clean.upper() 
+                if fix_titles: 
+                    p.paragraph_format.keep_with_next = True
+                    p.paragraph_format.page_break_before = True
             else:
-                if not first_paragraph_found: first_paragraph_found = True # Si encontramos texto antes que título
-                
                 if fix_runts and len(text_clean) > 50: prevent_runts_in_paragraph(p)
                 if justify_text: p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
@@ -336,7 +315,7 @@ elif "Maquetador" in selected_module:
             if i % 10 == 0: p_bar.progress((i+1)/total_p)
 
         bio = BytesIO(); doc.save(bio)
-        st.success(f"✅ Libro Maquetado: {theme_choice} (Ecualizado)")
+        st.success(f"✅ Libro Maquetado: {theme_choice}")
         st.download_button("⬇️ Descargar Libro KDP", bio.getvalue(), "Libro_KDP_Pro.docx")
 
 # ==============================================================================
@@ -367,10 +346,10 @@ elif "Limpiador" in selected_module:
         st.download_button("⬇️ Descargar", bio.getvalue(), "Limpio.docx")
 
 # ==============================================================================
-# MÓDULO 5: GENERADOR EPUB (V5.3 - LIMPIEZA DE TRUCOS)
+# MÓDULO 5: GENERADOR EPUB (V5.1 - CORREGIDO)
 # ==============================================================================
 elif "Generador EPUB" in selected_module:
-    st.header("⚡ Generador EPUB 5.3")
+    st.header("⚡ Generador EPUB 5.1")
     uploaded_file = st.file_uploader("Sube Manuscrito (Usa el archivo del Módulo 2)", key="mod5")
     
     col1, col2 = st.columns(2)
@@ -380,67 +359,52 @@ elif "Generador EPUB" in selected_module:
         author_name = st.text_input("Autor", "Autor")
     
     if uploaded_file and st.button("Convertir"):
-        # --- PASO CRÍTICO: LIMPIEZA DE TRUCOS DE WORD ---
-        # Cargamos el DOCX en memoria para quitarle los \n antes de pasarlo a EPUB.
-        # Así, el EPUB usa solo CSS y no se ve afectado por los trucos visuales del papel.
-        doc_temp = Document(uploaded_file)
-        for p in doc_temp.paragraphs:
-            if p.style.name.startswith('Heading'):
-                # Quitamos saltos de línea manuales que pusimos para Word
-                p.text = p.text.replace('\n', '').strip()
-        
-        # Guardamos en un buffer temporal limpio
-        buffer_limpio = BytesIO()
-        doc_temp.save(buffer_limpio)
-        buffer_limpio.seek(0)
-        # -----------------------------------------------
-
+        uploaded_file.seek(0) # Seguridad extra
         book = epub.EpubBook()
         book.set_identifier(str(uuid.uuid4()))
         book.set_title(book_title)
         book.set_language("es")
         book.add_author(author_name)
         
-        # Usamos el buffer limpio, no el original sucio con \n
-        result = mammoth.convert_to_html(buffer_limpio)
+        # Conversión a HTML
+        result = mammoth.convert_to_html(uploaded_file)
         soup = BeautifulSoup(result.value, 'html.parser')
         
+        # --- CORRECCIÓN V5.1: Manejo robusto de BODY ---
+        # Si soup.body es None, usamos soup directamente
         content_container = soup.body if soup.body else soup
+        # -----------------------------------------------
+
         chapters = []
         headers = soup.find_all(['h1'])
         
-        # CSS INYECTADO (Control absoluto)
-        css_style = """
-        <style>
-            h1 { margin-top: 3em !important; text-align: center; page-break-before: always; }
-            p { text-align: justify; text-indent: 1em; margin-bottom: 0.5em; }
-        </style>
-        """
-
         if not headers:
             c = epub.EpubHtml(title="Inicio", file_name="chap_1.xhtml")
-            c.content = css_style + str(content_container) 
+            c.content = str(content_container) # Convertir a string el contenido completo
             book.add_item(c); chapters.append(c)
         else:
             current_content = ""; current_title = "Inicio"; count = 0
             
+            # Iteramos sobre los hijos del contenedor seguro
             for elem in content_container.children:
                 elem_str = str(elem)
                 if elem.name == 'h1':
                     if current_content.strip():
                         count += 1
                         c = epub.EpubHtml(title=current_title, file_name=f"chap_{count}.xhtml")
-                        c.content = css_style + f"<h1>{current_title}</h1>{current_content}" if count > 1 else css_style + current_content
+                        # Aseguramos el H1 dentro del capítulo
+                        c.content = f"<h1>{current_title}</h1>{current_content}" if count > 1 else current_content
                         book.add_item(c); chapters.append(c)
                     current_title = elem.get_text()
                     current_content = ""
                 else:
                     current_content += elem_str
             
+            # Último capítulo
             if current_content.strip():
                 count += 1
                 c = epub.EpubHtml(title=current_title, file_name=f"chap_{count}.xhtml")
-                c.content = css_style + f"<h1>{current_title}</h1>{current_content}"
+                c.content = f"<h1>{current_title}</h1>{current_content}"
                 book.add_item(c); chapters.append(c)
 
         book.toc = tuple(chapters)
@@ -448,5 +412,5 @@ elif "Generador EPUB" in selected_module:
         book.spine = ['nav'] + chapters
         
         bio = BytesIO(); epub.write_epub(bio, book, {})
-        st.success("✅ EPUB generado (Limpio y Optimizado).")
+        st.success("✅ EPUB generado con éxito.")
         st.download_button("⬇️ Descargar EPUB", bio.getvalue(), f"{book_title}.epub")
