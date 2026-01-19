@@ -29,6 +29,7 @@ st.markdown("""
     div[data-testid="stSidebar"] { background-color: #f8f9fa; }
     h1 { color: #2c3e50; }
     .stTextArea textarea { font-size: 14px; }
+    .stAlert { margin-top: 1rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -131,113 +132,126 @@ def call_api(prompt, temp=0.7):
     return "[ERROR API]"
 
 # ==============================================================================
-# MÓDULO 1: AUDITOR & CORRECTOR (V9.0 - STATEFUL & PRO PROMPTS)
+# MÓDULO 1: AUDITOR & CORRECTOR (V9.1 - PERSISTENCIA FIX)
 # ==============================================================================
 if "1." in selected_module:
-    st.header("💎 Auditoría & Corrección IA (Pro)")
+    st.header("💎 Auditoría & Corrección IA (Persistente)")
     
-    # PROMPT 1: AUDITORÍA (MODIFICABLE)
-    default_audit_prompt = """Actúa como un editor literario senior experto. Analiza el siguiente fragmento de texto.
-    Busca: errores gramaticales graves, problemas de coherencia, repeticiones excesivas, o frases confusas.
-    Si el texto está bien, responde SOLO con la palabra 'CLEAN'.
-    Si hay errores, lístalos brevemente con bullet points. Sé crítico pero constructivo."""
-    
-    # PROMPT 2: CORRECCIÓN (MODIFICABLE)
-    default_rewrite_prompt = """Actúa como un escritor 'bestseller' nativo. Reescribe el siguiente texto para mejorar su fluidez, estilo y enganche.
-    Mantén el significado original intacto.
-    Usa un vocabulario rico pero accesible.
-    Evita la voz pasiva excesiva.
-    NO agregues explicaciones, solo devuelve el texto corregido."""
+    # 1. INICIALIZACIÓN DE MEMORIA (STATE)
+    if 'audit_file_data' not in st.session_state: st.session_state.audit_file_data = None
+    if 'rewrite_file_data' not in st.session_state: st.session_state.rewrite_file_data = None
+    if 'current_file_name' not in st.session_state: st.session_state.current_file_name = ""
 
-    with st.expander("⚙️ Configuración de Cerebro IA (Prompts)"):
-        audit_prompt_user = st.text_area("Instrucción para Auditoría:", default_audit_prompt, height=100)
-        rewrite_prompt_user = st.text_area("Instrucción para Corrección:", default_rewrite_prompt, height=100)
+    # 2. PROMPTS DE INGENIERO
+    default_audit = """Actúa como un editor experto en literatura. Tu objetivo es detectar "Espanglish" y problemas de tono.
+    Analiza buscando:
+    1. Fraseo Antinatural (ej: "The breathing of the balloon" -> "Balloon Breathing").
+    2. Vocabulario Inapropiado (palabras de negocios en libros infantiles).
+    3. Consistencia de Personajes (pronombres he/she).
+    4. Tono Robótico.
+    Si encuentras errores, explícalos. Si es perfecto, responde "CLEAN"."""
+    
+    default_rewrite = """Actúa como un autor bestseller nativo.
+    Reescribe el texto para que suene mágico y natural.
+    Reglas:
+    1. Elimina el exceso de preposiciones "of".
+    2. Usa vocabulario emocional y sensorial.
+    3. Mantén la consistencia.
+    Solo devuelve el texto mejorado."""
+
+    with st.expander("⚙️ Configuración de Cerebro IA (Prompts)", expanded=False):
+        audit_prompt = st.text_area("Prompt Auditoría:", default_audit, height=100)
+        rewrite_prompt = st.text_area("Prompt Corrección:", default_rewrite, height=100)
 
     uploaded_file = st.file_uploader("Sube tu manuscrito (.docx)", type=["docx"], key="mod1")
     
-    if uploaded_file:
-        # Inicializar Estado de Sesión si no existe (MEMORIA)
-        if 'audit_result' not in st.session_state: st.session_state.audit_result = None
-        if 'rewrite_result' not in st.session_state: st.session_state.rewrite_result = None
-        
-        # Detectar si cambió el archivo para limpiar memoria
-        if 'last_file' not in st.session_state or st.session_state.last_file != uploaded_file.name:
-            st.session_state.audit_result = None
-            st.session_state.rewrite_result = None
-            st.session_state.last_file = uploaded_file.name
+    # Limpieza de memoria si cambia el archivo
+    if uploaded_file and uploaded_file.name != st.session_state.current_file_name:
+        st.session_state.audit_file_data = None
+        st.session_state.rewrite_file_data = None
+        st.session_state.current_file_name = uploaded_file.name
 
+    if uploaded_file:
         doc = Document(uploaded_file)
         tab1, tab2 = st.tabs(["📊 Auditoría de Calidad", "🚀 Corrección de Estilo"])
         
-        # --- TAB 1: AUDITORÍA ---
+        # --- PESTAÑA 1: AUDITORÍA ---
         with tab1:
-            if st.button("🔍 Iniciar Auditoría"):
+            st.info("⚠️ IMPORTANTE: No cambies de pestaña en el navegador mientras procesa. Si la pestaña se duerme, el proceso se corta.")
+            
+            if st.button("🔍 Iniciar Auditoría", key="btn_audit"):
                 audit_doc = Document()
                 audit_doc.add_heading("Reporte de Auditoría Editorial", 0)
-                p_bar = st.progress(0)
-                total = len(doc.paragraphs)
+                progress_text = "Analizando párrafos..."
+                my_bar = st.progress(0, text=progress_text)
                 
+                total_p = len(doc.paragraphs)
                 for i, p in enumerate(doc.paragraphs):
-                    if len(p.text) > 20: # Ignorar líneas muy cortas
-                        # Usamos el Prompt Personalizado
-                        final_prompt = f"{audit_prompt_user}\n\nTEXTO A ANALIZAR: '{p.text[:600]}'"
-                        res = call_api(final_prompt)
-                        if "CLEAN" not in res: 
-                            audit_doc.add_paragraph(f"📌 Párrafo {i+1} (Original: {p.text[:50]}...):")
+                    if len(p.text) > 20:
+                        prompt_final = f"{audit_prompt}\n\nTEXTO: '{p.text[:800]}'"
+                        res = call_api(prompt_final)
+                        if "CLEAN" not in res:
+                            audit_doc.add_paragraph(f"📌 Párrafo {i+1}:")
                             audit_doc.add_paragraph(res)
                             audit_doc.add_paragraph("-" * 20)
-                    p_bar.progress((i+1)/total)
+                    my_bar.progress((i + 1) / total_p, text=f"Analizando {i+1}/{total_p}")
                 
-                # GUARDAR EN MEMORIA (SESSION STATE)
+                my_bar.empty()
+                # GUARDAR EN SESSION STATE
                 bio = BytesIO()
                 audit_doc.save(bio)
-                st.session_state.audit_result = bio.getvalue()
-                st.success("✅ Auditoría Finalizada.")
+                st.session_state.audit_file_data = bio.getvalue()
+                st.success("✅ ¡Auditoría terminada!")
 
-            # MOSTRAR BOTÓN DE DESCARGA SI EXISTE EN MEMORIA
-            if st.session_state.audit_result:
+            # BOTÓN DE DESCARGA (PERSISTENTE)
+            if st.session_state.audit_file_data:
+                st.markdown("---")
                 st.download_button(
-                    label="⬇️ Descargar Reporte de Auditoría",
-                    data=st.session_state.audit_result,
-                    file_name="Reporte_Auditoria.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    label="⬇️ Descargar Reporte Generado",
+                    data=st.session_state.audit_file_data,
+                    file_name="Reporte_Auditoria_Pro.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key="dl_audit"
                 )
 
-        # --- TAB 2: CORRECCIÓN ---
+        # --- PESTAÑA 2: CORRECCIÓN ---
         with tab2:
-            if st.button("🚀 Re-escribir Libro Completo"):
+            if st.button("🚀 Re-escribir Libro", key="btn_rewrite"):
                 uploaded_file.seek(0)
-                new_doc = Document(uploaded_file) # Copia estructura original
-                p_bar = st.progress(0)
-                total = len(doc.paragraphs)
+                new_doc = Document(uploaded_file)
+                progress_text = "Re-escribiendo con estilo nativo..."
+                my_bar = st.progress(0, text=progress_text)
                 
+                total_p = len(doc.paragraphs)
                 for i, (p_orig, p_dest) in enumerate(zip(doc.paragraphs, new_doc.paragraphs)):
                     if len(p_orig.text) > 10:
-                        # Usamos el Prompt Personalizado de Reescritura
-                        final_prompt = f"{rewrite_prompt_user}\n\nTEXTO: '{p_orig.text}'"
-                        res = call_api(final_prompt)
-                        clean_res = clean_markdown(res)
-                        if "[ERROR" not in clean_res: 
-                            p_dest.text = clean_res
-                    p_bar.progress((i+1)/total)
+                        prompt_final = f"{rewrite_prompt}\n\nTEXTO ORIGINAL: '{p_orig.text}'"
+                        res = call_api(prompt_final)
+                        clean = clean_markdown(res)
+                        if "[ERROR" not in clean:
+                            p_dest.text = clean
+                    my_bar.progress((i + 1) / total_p, text=f"Procesando {i+1}/{total_p}")
                 
-                # GUARDAR EN MEMORIA
+                my_bar.empty()
+                # GUARDAR EN SESSION STATE
                 bio = BytesIO()
                 new_doc.save(bio)
-                st.session_state.rewrite_result = bio.getvalue()
-                st.success("✅ Re-escritura Finalizada.")
+                st.session_state.rewrite_file_data = bio.getvalue()
+                st.success("✅ ¡Reescritura terminada!")
 
-            # MOSTRAR BOTÓN DE DESCARGA SI EXISTE EN MEMORIA
-            if st.session_state.rewrite_result:
+            # BOTÓN DE DESCARGA (PERSISTENTE)
+            if st.session_state.rewrite_file_data:
+                st.markdown("---")
                 st.download_button(
                     label="⬇️ Descargar Libro Corregido",
-                    data=st.session_state.rewrite_result,
-                    file_name="Libro_Corregido_IA.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    data=st.session_state.rewrite_file_data,
+                    file_name="Libro_Corregido_Nativo.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    key="dl_rewrite"
                 )
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (PAPEL)
+# MÓDULO 2: MAQUETADOR KDP PRO
 # ==============================================================================
 elif "2." in selected_module:
     st.header("📏 Maquetador KDP PRO (Papel)")
