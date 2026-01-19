@@ -281,10 +281,10 @@ elif "4." in selected_module:
         st.download_button("⬇️ Descargar", bio.getvalue(), "Limpio.docx")
 
 # ==============================================================================
-# MÓDULO 5: GENERADOR EPUB (V6.8 - TAMAÑO CALIBRADO)
+# MÓDULO 5: GENERADOR EPUB (V6.9 - SINTAXIS OK)
 # ==============================================================================
 elif "5." in selected_module:
-    st.header("⚡ Generador EPUB 6.8 (Elegance)")
+    st.header("⚡ Generador EPUB 6.9 (Perfect)")
     uploaded_file = st.file_uploader("Sube Manuscrito (DOCX procesado)", key="mod5")
     
     col1, col2, col3 = st.columns(3)
@@ -325,7 +325,6 @@ elif "5." in selected_module:
         # 4. INYECCIÓN ESTILO DIRECTO (CALIBRADO)
         soup = BeautifulSoup(result.value, 'html.parser')
         
-        # AJUSTE V6.8: Tamaño 3.2em (Elegante) y márgenes finos
         inline_style = "float: left; font-size: 3.2em; font-weight: bold; line-height: 0.8; margin-right: 0.15em; margin-top: -0.1em; color: black;"
 
         for h1 in soup.find_all('h1'):
@@ -364,6 +363,7 @@ elif "5." in selected_module:
                     if curr_h.strip():
                         count += 1
                         c = epub.EpubHtml(title=curr_t, file_name=f"c_{count}.xhtml", lang=lang)
+                        # AQUÍ ESTABA EL ERROR: AHORA TIENE ELSE
                         page_break = '<div style="page-break-before:always;"></div>' if count > 1 else ""
                         c.content = css + page_break + f"<h1>{curr_t}</h1>{curr_h}"
                         book.add_item(c); chapters.append(c)
@@ -373,4 +373,15 @@ elif "5." in selected_module:
             if curr_h.strip():
                 count += 1
                 c = epub.EpubHtml(title=curr_t, file_name=f"c_{count}.xhtml", lang=lang)
-                page_break = '<div style="page-break-before:always;"></div>' if count > 1
+                # AQUÍ TAMBIÉN:
+                page_break = '<div style="page-break-before:always;"></div>' if count > 1 else ""
+                c.content = css + page_break + f"<h1>{curr_t}</h1>{curr_h}"
+                book.add_item(c); chapters.append(c)
+
+        book.toc = tuple(chapters)
+        book.add_item(epub.EpubNcx()); book.add_item(epub.EpubNav())
+        book.spine = ['nav'] + chapters
+        
+        bio_ep = BytesIO(); epub.write_epub(bio_ep, book, {})
+        st.success("✅ EPUB generado: Letra Capital Calibrada + Sintaxis Corregida.")
+        st.download_button("⬇️ Descargar EPUB", bio_ep.getvalue(), f"{title}.epub")
