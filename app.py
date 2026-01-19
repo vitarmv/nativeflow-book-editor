@@ -178,7 +178,6 @@ elif "2." in selected_module:
     with col3:
         fix_titles = st.checkbox("📎 Forzar Títulos en Hoja Nueva", value=True)
         pro_start = st.checkbox("✨ Activar Letra Capital al Inicio", value=True)
-        start_style = st.selectbox("Estilo de Inicio:", ["Letra Capital (Big Letter)", "Frase Versalitas (Small Caps)"])
     with col4:
         reconstruct = st.checkbox("🔗 Unir párrafos rotos (Reconstructor)", value=True)
         justify_text = st.checkbox("📄 Justificar + Silabeo", value=True)
@@ -282,10 +281,10 @@ elif "4." in selected_module:
         st.download_button("⬇️ Descargar", bio.getvalue(), "Limpio.docx")
 
 # ==============================================================================
-# MÓDULO 5: GENERADOR EPUB (V6.7 - FUERZA BRUTA)
+# MÓDULO 5: GENERADOR EPUB (V6.8 - TAMAÑO CALIBRADO)
 # ==============================================================================
 elif "5." in selected_module:
-    st.header("⚡ Generador EPUB 6.7 (Direct Inject)")
+    st.header("⚡ Generador EPUB 6.8 (Elegance)")
     uploaded_file = st.file_uploader("Sube Manuscrito (DOCX procesado)", key="mod5")
     
     col1, col2, col3 = st.columns(3)
@@ -294,14 +293,12 @@ elif "5." in selected_module:
     with col3: lang = st.selectbox("Idioma", ["es", "en", "fr", "it", "pt"]) 
     
     if uploaded_file and st.button("Convertir"):
-        # 1. LIMPIEZA PREVIA
+        # 1. LIMPIEZA
         doc_temp = Document(uploaded_file)
-        # Elimina Enters de títulos
         for p in doc_temp.paragraphs:
             if p.style.name.startswith('Heading'):
                 p.text = p.text.replace('\n', '').strip()
 
-        # Eliminar párrafos vacíos
         paragraphs_to_delete = []
         for i in range(len(doc_temp.paragraphs) - 1):
             curr = doc_temp.paragraphs[i]
@@ -318,19 +315,18 @@ elif "5." in selected_module:
         book.set_identifier(str(uuid.uuid4()))
         book.set_title(title); book.set_language(lang); book.add_author(author)
         
-        # 3. MAPA DE ESTILOS (INDICE)
+        # 3. MAPA ESTILOS
         style_map = """
         p[style-name^='Heading'] => h1:fresh
         p[style-name^='Título'] => h1:fresh
         """
         result = mammoth.convert_to_html(buf, style_map=style_map)
         
-        # 4. INYECCIÓN DIRECTA DE ESTILO (LA SOLUCIÓN 6.7)
+        # 4. INYECCIÓN ESTILO DIRECTO (CALIBRADO)
         soup = BeautifulSoup(result.value, 'html.parser')
         
-        # Estilo para la letra capital inyectado directamente en el HTML
-        # font-size: 3.5em; float: left; line-height: 0.8;
-        inline_style = "float: left; font-size: 3.5em; font-weight: bold; line-height: 0.8; margin-right: 0.1em; margin-top: -0.1em; color: black;"
+        # AJUSTE V6.8: Tamaño 3.2em (Elegante) y márgenes finos
+        inline_style = "float: left; font-size: 3.2em; font-weight: bold; line-height: 0.8; margin-right: 0.15em; margin-top: -0.1em; color: black;"
 
         for h1 in soup.find_all('h1'):
             next_p = h1.find_next_sibling()
@@ -342,20 +338,14 @@ elif "5." in selected_module:
                 if len(text) > 1:
                     first_char = text[0]
                     rest = text[1:]
-                    # AQUÍ ESTÁ EL CAMBIO: STYLE DIRECTO
                     new_html = f'<span style="{inline_style}">{first_char}</span>{rest}'
                     new_tag = BeautifulSoup(new_html, 'html.parser')
                     next_p.clear()
                     next_p.append(new_tag)
 
-        # 5. CSS BASE (Solo para estructura)
+        # 5. CSS BASE
         css = """<style>
-            h1 { 
-                margin-top: 2em; 
-                text-align: center; 
-                color: black;
-                margin-bottom: 1em;
-            }
+            h1 { margin-top: 2em; text-align: center; color: black; margin-bottom: 1em; }
             p { text-align: justify; text-indent: 1em; line-height: 1.5em; margin-top: 0; }
         </style>"""
 
@@ -383,14 +373,4 @@ elif "5." in selected_module:
             if curr_h.strip():
                 count += 1
                 c = epub.EpubHtml(title=curr_t, file_name=f"c_{count}.xhtml", lang=lang)
-                page_break = '<div style="page-break-before:always;"></div>' if count > 1 else ""
-                c.content = css + page_break + f"<h1>{curr_t}</h1>{curr_h}"
-                book.add_item(c); chapters.append(c)
-
-        book.toc = tuple(chapters)
-        book.add_item(epub.EpubNcx()); book.add_item(epub.EpubNav())
-        book.spine = ['nav'] + chapters
-        
-        bio_ep = BytesIO(); epub.write_epub(bio_ep, book, {})
-        st.success("✅ EPUB generado: Idioma + Índice + Letra Grande (Inline Style).")
-        st.download_button("⬇️ Descargar EPUB", bio_ep.getvalue(), f"{title}.epub")
+                page_break = '<div style="page-break-before:always;"></div>' if count > 1
