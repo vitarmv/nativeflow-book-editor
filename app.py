@@ -10,6 +10,8 @@ import os
 import re
 import uuid
 import itertools
+import random
+import string
 
 # --- LIBRERÍAS PRO ---
 import pyphen  
@@ -26,6 +28,7 @@ st.markdown("""
     .block-container { padding-top: 2rem; }
     div[data-testid="stSidebar"] { background-color: #f8f9fa; }
     h1 { color: #2c3e50; }
+    .stTextArea textarea { font-size: 14px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -128,38 +131,110 @@ def call_api(prompt, temp=0.7):
     return "[ERROR API]"
 
 # ==============================================================================
-# MÓDULO 1: AUDITOR & CORRECTOR
+# MÓDULO 1: AUDITOR & CORRECTOR (V9.0 - STATEFUL & PRO PROMPTS)
 # ==============================================================================
 if "1." in selected_module:
-    st.header("💎 Auditoría & Corrección IA")
-    uploaded_file = st.file_uploader("Sube tu manuscrito", type=["docx"], key="mod1")
+    st.header("💎 Auditoría & Corrección IA (Pro)")
+    
+    # PROMPT 1: AUDITORÍA (MODIFICABLE)
+    default_audit_prompt = """Actúa como un editor literario senior experto. Analiza el siguiente fragmento de texto.
+    Busca: errores gramaticales graves, problemas de coherencia, repeticiones excesivas, o frases confusas.
+    Si el texto está bien, responde SOLO con la palabra 'CLEAN'.
+    Si hay errores, lístalos brevemente con bullet points. Sé crítico pero constructivo."""
+    
+    # PROMPT 2: CORRECCIÓN (MODIFICABLE)
+    default_rewrite_prompt = """Actúa como un escritor 'bestseller' nativo. Reescribe el siguiente texto para mejorar su fluidez, estilo y enganche.
+    Mantén el significado original intacto.
+    Usa un vocabulario rico pero accesible.
+    Evita la voz pasiva excesiva.
+    NO agregues explicaciones, solo devuelve el texto corregido."""
+
+    with st.expander("⚙️ Configuración de Cerebro IA (Prompts)"):
+        audit_prompt_user = st.text_area("Instrucción para Auditoría:", default_audit_prompt, height=100)
+        rewrite_prompt_user = st.text_area("Instrucción para Corrección:", default_rewrite_prompt, height=100)
+
+    uploaded_file = st.file_uploader("Sube tu manuscrito (.docx)", type=["docx"], key="mod1")
+    
     if uploaded_file:
+        # Inicializar Estado de Sesión si no existe (MEMORIA)
+        if 'audit_result' not in st.session_state: st.session_state.audit_result = None
+        if 'rewrite_result' not in st.session_state: st.session_state.rewrite_result = None
+        
+        # Detectar si cambió el archivo para limpiar memoria
+        if 'last_file' not in st.session_state or st.session_state.last_file != uploaded_file.name:
+            st.session_state.audit_result = None
+            st.session_state.rewrite_result = None
+            st.session_state.last_file = uploaded_file.name
+
         doc = Document(uploaded_file)
         tab1, tab2 = st.tabs(["📊 Auditoría de Calidad", "🚀 Corrección de Estilo"])
+        
+        # --- TAB 1: AUDITORÍA ---
         with tab1:
             if st.button("🔍 Iniciar Auditoría"):
                 audit_doc = Document()
-                audit_doc.add_heading("Reporte de Auditoría", 0)
+                audit_doc.add_heading("Reporte de Auditoría Editorial", 0)
                 p_bar = st.progress(0)
+                total = len(doc.paragraphs)
+                
                 for i, p in enumerate(doc.paragraphs):
-                    if len(p.text) > 15:
-                        res = call_api(f"Analyze the following text for grammar or flow issues. Output 'CLEAN' if perfect, or describe the issue. Text: '{p.text[:400]}'")
-                        if "CLEAN" not in res: audit_doc.add_paragraph(f"Párrafo {i+1}: {res}")
-                    p_bar.progress((i+1)/len(doc.paragraphs))
-                bio = BytesIO(); audit_doc.save(bio)
-                st.download_button("⬇️ Descargar Reporte", bio.getvalue(), "Auditoria.docx")
+                    if len(p.text) > 20: # Ignorar líneas muy cortas
+                        # Usamos el Prompt Personalizado
+                        final_prompt = f"{audit_prompt_user}\n\nTEXTO A ANALIZAR: '{p.text[:600]}'"
+                        res = call_api(final_prompt)
+                        if "CLEAN" not in res: 
+                            audit_doc.add_paragraph(f"📌 Párrafo {i+1} (Original: {p.text[:50]}...):")
+                            audit_doc.add_paragraph(res)
+                            audit_doc.add_paragraph("-" * 20)
+                    p_bar.progress((i+1)/total)
+                
+                # GUARDAR EN MEMORIA (SESSION STATE)
+                bio = BytesIO()
+                audit_doc.save(bio)
+                st.session_state.audit_result = bio.getvalue()
+                st.success("✅ Auditoría Finalizada.")
+
+            # MOSTRAR BOTÓN DE DESCARGA SI EXISTE EN MEMORIA
+            if st.session_state.audit_result:
+                st.download_button(
+                    label="⬇️ Descargar Reporte de Auditoría",
+                    data=st.session_state.audit_result,
+                    file_name="Reporte_Auditoria.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+
+        # --- TAB 2: CORRECCIÓN ---
         with tab2:
-            if st.button("🚀 Re-escribir con IA"):
-                new_doc = Document()
+            if st.button("🚀 Re-escribir Libro Completo"):
+                uploaded_file.seek(0)
+                new_doc = Document(uploaded_file) # Copia estructura original
                 p_bar = st.progress(0)
-                for i, p in enumerate(doc.paragraphs):
-                    if len(p.text) > 5:
-                        res = call_api(f"Improve the flow and style of this text, keep original meaning: '{p.text}'")
-                        new_doc.add_paragraph(clean_markdown(res))
-                    else: new_doc.add_paragraph("")
-                    p_bar.progress((i+1)/len(doc.paragraphs))
-                bio = BytesIO(); new_doc.save(bio)
-                st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Manuscrito_IA.docx")
+                total = len(doc.paragraphs)
+                
+                for i, (p_orig, p_dest) in enumerate(zip(doc.paragraphs, new_doc.paragraphs)):
+                    if len(p_orig.text) > 10:
+                        # Usamos el Prompt Personalizado de Reescritura
+                        final_prompt = f"{rewrite_prompt_user}\n\nTEXTO: '{p_orig.text}'"
+                        res = call_api(final_prompt)
+                        clean_res = clean_markdown(res)
+                        if "[ERROR" not in clean_res: 
+                            p_dest.text = clean_res
+                    p_bar.progress((i+1)/total)
+                
+                # GUARDAR EN MEMORIA
+                bio = BytesIO()
+                new_doc.save(bio)
+                st.session_state.rewrite_result = bio.getvalue()
+                st.success("✅ Re-escritura Finalizada.")
+
+            # MOSTRAR BOTÓN DE DESCARGA SI EXISTE EN MEMORIA
+            if st.session_state.rewrite_result:
+                st.download_button(
+                    label="⬇️ Descargar Libro Corregido",
+                    data=st.session_state.rewrite_result,
+                    file_name="Libro_Corregido_IA.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
 
 # ==============================================================================
 # MÓDULO 2: MAQUETADOR KDP PRO (PAPEL)
@@ -281,10 +356,10 @@ elif "4." in selected_module:
         st.download_button("⬇️ Descargar", bio.getvalue(), "Limpio.docx")
 
 # ==============================================================================
-# MÓDULO 5: GENERADOR EPUB (V7.2 - CONTROL TOTAL)
+# MÓDULO 5: GENERADOR EPUB (V8.0 - INLINE + SLIDER)
 # ==============================================================================
 elif "5." in selected_module:
-    st.header("⚡ Generador EPUB 7.2 (Control Manual)")
+    st.header("⚡ Generador EPUB 8.0 (Precision)")
     uploaded_file = st.file_uploader("Sube Manuscrito (DOCX procesado)", key="mod5")
     
     col1, col2, col3 = st.columns(3)
@@ -292,10 +367,10 @@ elif "5." in selected_module:
     with col2: author = st.text_input("Autor", "Autor")
     with col3: lang = st.selectbox("Idioma", ["es", "en", "fr", "it", "pt"]) 
     
-    # --- NOVEDAD V7.2: SLIDER DE TAMAÑO ---
     st.markdown("---")
-    st.subheader("🎛️ Calibración de Letra Capital")
-    dropcap_size = st.slider("Tamaño de la Letra (em):", min_value=1.5, max_value=5.0, value=2.4, step=0.1, help="Si sale muy grande, baja este número. Lo normal es entre 2.2 y 2.8.")
+    st.write("🎛️ **Calibración de Letra Capital:**")
+    # SLIDER CONECTADO (Por defecto 1.6)
+    dropcap_size = st.slider("Tamaño (Default 1.6 para 2 líneas):", 1.0, 4.0, 1.6, 0.1)
     
     if uploaded_file and st.button("Convertir"):
         # 1. LIMPIEZA PREVIA
@@ -315,25 +390,20 @@ elif "5." in selected_module:
 
         buf = BytesIO(); doc_temp.save(buf); buf.seek(0)
         
-        # 2. CONFIGURACIÓN
+        # 2. CONFIGURACIÓN EPUB
         book = epub.EpubBook()
         book.set_identifier(str(uuid.uuid4()))
         book.set_title(title); book.set_language(lang); book.add_author(author)
         
         # 3. MAPA ESTILOS
-        style_map = """
-        p[style-name^='Heading'] => h1:fresh
-        p[style-name^='Título'] => h1:fresh
-        """
+        style_map = "p[style-name^='Heading'] => h1:fresh\np[style-name^='Título'] => h1:fresh"
         result = mammoth.convert_to_html(buf, style_map=style_map)
         
-        # 4. INYECCIÓN ESTILO DIRECTO (USANDO EL SLIDER)
+        # 4. INYECCIÓN CON ESTILO EN LÍNEA
         soup = BeautifulSoup(result.value, 'html.parser')
         
-        # Usamos la variable dropcap_size del slider
-        inline_style = f"float: left; font-size: {dropcap_size}em; font-weight: bold; line-height: 0.8; margin-right: 0.12em; margin-top: -0.05em; color: black;"
+        inline_style = f"float: left; font-size: {dropcap_size}em; font-weight: bold; line-height: 0.8; margin-right: 0.12em; margin-top: 0.05em; color: black;"
 
-        count_caps = 0
         for h1 in soup.find_all('h1'):
             next_p = h1.find_next_sibling()
             while next_p and (next_p.name != 'p' or not next_p.get_text().strip()):
@@ -348,7 +418,6 @@ elif "5." in selected_module:
                     new_tag = BeautifulSoup(new_html, 'html.parser')
                     next_p.clear()
                     next_p.append(new_tag)
-                    count_caps += 1
 
         # 5. CSS BASE
         css = """<style>
@@ -389,5 +458,5 @@ elif "5." in selected_module:
         book.spine = ['nav'] + chapters
         
         bio_ep = BytesIO(); epub.write_epub(bio_ep, book, {})
-        st.success(f"✅ EPUB generado: Tamaño {dropcap_size}em aplicado a {count_caps} capítulos.")
+        st.success(f"✅ EPUB generado: Tamaño {dropcap_size}x (Inyectado).")
         st.download_button("⬇️ Descargar EPUB", bio_ep.getvalue(), f"{title}.epub")
