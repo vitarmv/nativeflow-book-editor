@@ -92,6 +92,23 @@ def prevent_runts_in_paragraph(paragraph):
     if last_space != -1:
         paragraph.text = text[:last_space] + "\u00A0" + text[last_space+1:]
 
+def delete_paragraph(paragraph):
+    p = paragraph._element
+    p.getparent().remove(p)
+    p._p = p._element = None
+
+def stitch_paragraphs(doc):
+    for i in range(len(doc.paragraphs) - 2, -1, -1):
+        p_curr = doc.paragraphs[i]
+        p_next = doc.paragraphs[i+1]
+        text_curr = p_curr.text.strip()
+        text_next = p_next.text.strip()
+        if not text_curr or not text_next: continue
+        if p_curr.style.name.startswith('Heading') or p_next.style.name.startswith('Heading'): continue
+        if text_curr[-1] not in ['.', '!', '?', '"', '”', ':']:
+            p_curr.text = text_curr + " " + text_next
+            delete_paragraph(p_next)
+
 def nuclear_clean(text):
     if not text: return text
     text = text.replace('\n', ' ').replace('\r', ' ').replace('\v', ' ').replace('\f', ' ')
@@ -187,8 +204,15 @@ elif "2." in selected_module:
         style = doc.styles['Normal']
         style.font.name, style.font.size = theme['font'], Pt(theme['size'])
         style.paragraph_format.line_spacing = 1.25
-        if justify_text: style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY; try: enable_native_hyphenation(doc) 
-        except: pass
+        
+        # --- CORRECCIÓN DE SINTAXIS (BLOQUE EXPANDIDO) ---
+        if justify_text: 
+            style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+            try: 
+                enable_native_hyphenation(doc) 
+            except: 
+                pass
+        # ------------------------------------------------
 
         previous_was_heading = False
         for i, p in enumerate(doc.paragraphs):
@@ -226,7 +250,7 @@ elif "3." in selected_module:
         doc = Document(uploaded_file)
         count = 0
         for p in doc.paragraphs:
-            if re.search(r"([_.\-]){4,}", p.text):
+            if re.search(r"([_.\-]){{4,}}", p.text):
                 p.text = cta; count += 1
         bio = BytesIO(); doc.save(bio)
         st.success(f"✅ Se limpiaron {count} campos de escritura.")
