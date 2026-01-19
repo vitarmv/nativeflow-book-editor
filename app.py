@@ -180,10 +180,10 @@ if "Corrector" in selected_module:
                 st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (V5.0 - RECONSTRUCTOR)
+# MÓDULO 2: MAQUETADOR KDP PRO (V5.1 - ORIGINAL ESTABLE)
 # ==============================================================================
 elif "Maquetador" in selected_module:
-    st.header("📏 Maquetador KDP PRO 5.0")
+    st.header("📏 Maquetador KDP PRO 5.1 (Estable)")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -213,12 +213,12 @@ elif "Maquetador" in selected_module:
         doc = Document(uploaded_file)
         theme = THEMES[theme_choice] 
         
-        # 1. RECONSTRUCCIÓN
+        # 1. RECONSTRUCCIÓN (Opcional)
         if reconstruct:
             with st.spinner("🔗 Reconstruyendo..."):
                 stitch_paragraphs(doc)
         
-        # 2. SILABEO
+        # 2. SILABEO (Nativo de Word)
         if justify_text:
             try: enable_native_hyphenation(doc)
             except: pass
@@ -241,7 +241,7 @@ elif "Maquetador" in selected_module:
                 p_footer.style.font.name = theme['font']
                 p_footer.style.font.size = Pt(10)
 
-        # 4. ESTILOS
+        # 4. ESTILOS GLOBALES
         style = doc.styles['Normal']
         style.font.name = theme['font']
         style.font.size = Pt(theme['size'])
@@ -346,10 +346,10 @@ elif "Limpiador" in selected_module:
         st.download_button("⬇️ Descargar", bio.getvalue(), "Limpio.docx")
 
 # ==============================================================================
-# MÓDULO 5: GENERADOR EPUB (V5.1 - CORREGIDO)
+# MÓDULO 5: GENERADOR EPUB (V5.1 + BOOST VISUAL)
 # ==============================================================================
 elif "Generador EPUB" in selected_module:
-    st.header("⚡ Generador EPUB 5.1")
+    st.header("⚡ Generador EPUB (V5.1 Enhanced)")
     uploaded_file = st.file_uploader("Sube Manuscrito (Usa el archivo del Módulo 2)", key="mod5")
     
     col1, col2 = st.columns(2)
@@ -359,52 +359,67 @@ elif "Generador EPUB" in selected_module:
         author_name = st.text_input("Autor", "Autor")
     
     if uploaded_file and st.button("Convertir"):
-        uploaded_file.seek(0) # Seguridad extra
         book = epub.EpubBook()
         book.set_identifier(str(uuid.uuid4()))
         book.set_title(book_title)
         book.set_language("es")
         book.add_author(author_name)
         
-        # Conversión a HTML
+        # Conversión básica (como en V5.1)
         result = mammoth.convert_to_html(uploaded_file)
         soup = BeautifulSoup(result.value, 'html.parser')
         
-        # --- CORRECCIÓN V5.1: Manejo robusto de BODY ---
-        # Si soup.body es None, usamos soup directamente
-        content_container = soup.body if soup.body else soup
+        # --- AQUÍ ESTÁ EL TRUCO PARA LA LETRA GRANDE ---
+        # Este CSS le dice al Kindle: "Si ves un título (h1), haz que el primer párrafo
+        # que sigue (h1 + p) tenga la primera letra (:first-letter) Gigante y Flotante".
+        css_dropcap = """
+        <style>
+            h1 { text-align: center; margin-top: 2em; margin-bottom: 1em; page-break-before: always; color: black; }
+            p { text-align: justify; text-indent: 1em; line-height: 1.4em; }
+            
+            /* MAGIA: Letra Capital Automática en EPUB */
+            h1 + p::first-letter {
+                font-size: 3.2em;
+                float: left;
+                line-height: 0.8em;
+                margin-right: 0.1em;
+                font-weight: bold;
+                color: black;
+            }
+        </style>
+        """
         # -----------------------------------------------
 
+        content_container = soup.body if soup.body else soup
         chapters = []
         headers = soup.find_all(['h1'])
         
         if not headers:
             c = epub.EpubHtml(title="Inicio", file_name="chap_1.xhtml")
-            c.content = str(content_container) # Convertir a string el contenido completo
+            # Inyectamos el CSS junto con el contenido
+            c.content = css_dropcap + str(content_container)
             book.add_item(c); chapters.append(c)
         else:
             current_content = ""; current_title = "Inicio"; count = 0
             
-            # Iteramos sobre los hijos del contenedor seguro
             for elem in content_container.children:
                 elem_str = str(elem)
                 if elem.name == 'h1':
                     if current_content.strip():
                         count += 1
                         c = epub.EpubHtml(title=current_title, file_name=f"chap_{count}.xhtml")
-                        # Aseguramos el H1 dentro del capítulo
-                        c.content = f"<h1>{current_title}</h1>{current_content}" if count > 1 else current_content
+                        # Inyectamos el CSS en CADA capítulo
+                        c.content = css_dropcap + f"<h1>{current_title}</h1>{current_content}" if count > 1 else css_dropcap + current_content
                         book.add_item(c); chapters.append(c)
                     current_title = elem.get_text()
                     current_content = ""
                 else:
                     current_content += elem_str
             
-            # Último capítulo
             if current_content.strip():
                 count += 1
                 c = epub.EpubHtml(title=current_title, file_name=f"chap_{count}.xhtml")
-                c.content = f"<h1>{current_title}</h1>{current_content}"
+                c.content = css_dropcap + f"<h1>{current_title}</h1>{current_content}"
                 book.add_item(c); chapters.append(c)
 
         book.toc = tuple(chapters)
@@ -412,5 +427,5 @@ elif "Generador EPUB" in selected_module:
         book.spine = ['nav'] + chapters
         
         bio = BytesIO(); epub.write_epub(bio, book, {})
-        st.success("✅ EPUB generado con éxito.")
+        st.success("✅ EPUB generado con Letra Capital Real.")
         st.download_button("⬇️ Descargar EPUB", bio.getvalue(), f"{book_title}.epub")
