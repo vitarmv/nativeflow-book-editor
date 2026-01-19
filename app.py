@@ -214,7 +214,7 @@ elif "2." in selected_module:
         style.paragraph_format.line_spacing = 1.25; style.paragraph_format.space_after = Pt(0)
         style.paragraph_format.widow_control = True
         if justify_text: style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
+        
         for h in ['Heading 1', 'Heading 2']:
             try:
                 h_style = doc.styles[h]
@@ -285,69 +285,79 @@ elif "4." in selected_module:
         st.download_button("⬇️ Descargar", bio.getvalue(), "Limpio.docx")
 
 # ==============================================================================
-# MÓDULO 5: GENERADOR EPUB (V6.2 - FIXED)
+# MÓDULO 5: GENERADOR EPUB (V6.3 - FINAL)
 # ==============================================================================
 elif "5." in selected_module:
-    st.header("⚡ Generador EPUB 6.2 (Kindle Fix)")
+    st.header("⚡ Generador EPUB 6.3 (Fix Letra Grande)")
     uploaded_file = st.file_uploader("Sube Manuscrito (DOCX procesado)", key="mod5")
     
     col1, col2, col3 = st.columns(3)
     with col1: title = st.text_input("Título", "Mi Libro")
     with col2: author = st.text_input("Autor", "Autor")
-    with col3: lang = st.selectbox("Idioma", ["es", "en", "fr", "it", "pt"]) # FIX IDIOMA
+    with col3: lang = st.selectbox("Idioma", ["es", "en", "fr", "it", "pt"]) 
     
     if uploaded_file and st.button("Convertir"):
-        # 1. LIMPIEZA PREVIA INTELIGENTE
+        # 1. LIMPIEZA PREVIA
         doc_temp = Document(uploaded_file)
-        
         # Elimina Enters de títulos
         for p in doc_temp.paragraphs:
             if p.style.name.startswith('Heading'):
                 p.text = p.text.replace('\n', '').strip()
 
-        # FIX LETRA CAPITAL: Elimina párrafos vacíos entre Título y Texto
-        # Esto asegura que <h1> y <p> estén pegados para que el CSS funcione
+        # Eliminar párrafos vacíos "basura"
         paragraphs_to_delete = []
         for i in range(len(doc_temp.paragraphs) - 1):
             curr = doc_temp.paragraphs[i]
             next_p = doc_temp.paragraphs[i+1]
             if curr.style.name.startswith('Heading') and not next_p.text.strip():
                 paragraphs_to_delete.append(next_p)
-        
         for p in paragraphs_to_delete:
             p._element.getparent().remove(p._element)
 
         buf = BytesIO(); doc_temp.save(buf); buf.seek(0)
         
-        # 2. CONFIGURACIÓN LIBRO
+        # 2. CONFIGURACIÓN
         book = epub.EpubBook()
         book.set_identifier(str(uuid.uuid4()))
         book.set_title(title); book.set_language(lang); book.add_author(author)
         
-        # 3. MAPA DE ESTILOS (FIX ÍNDICE)
-        # Fuerza que Heading 1 sea <h1> y Heading 2 sea <h2>
+        # 3. MAPA DE ESTILOS (INDICE)
         style_map = """
         p[style-name^='Heading'] => h1:fresh
         p[style-name^='Título'] => h1:fresh
         """
         result = mammoth.convert_to_html(buf, style_map=style_map)
+        
+        # 4. INYECTOR DE CLASES (TRUCO V6.3)
+        # Usamos BeautifulSoup para marcar manualmente el primer párrafo
+        # Esto es mucho más seguro que confiar en el CSS
         soup = BeautifulSoup(result.value, 'html.parser')
         
-        # 4. CSS REPARADO
-        # Sin page-break-before en h1 global para no romper la portada/inicio
+        for h1 in soup.find_all('h1'):
+            # Busca el siguiente hermano que sea un párrafo
+            next_sibling = h1.find_next_sibling()
+            # Saltamos elementos vacíos si quedaron
+            while next_sibling and next_sibling.name != 'p' and not next_sibling.get_text().strip():
+                next_sibling = next_sibling.find_next_sibling()
+            
+            # Si encontramos el párrafo, le ponemos la clase "capitulo-inicio"
+            if next_sibling and next_sibling.name == 'p':
+                next_sibling['class'] = next_sibling.get('class', []) + ['capitulo-inicio']
+
+        # 5. CSS BLINDADO
         css = """<style>
             h1 { 
                 margin-top: 2em; 
                 text-align: center; 
                 color: black;
-                margin-bottom: 0.5em;
+                margin-bottom: 1em;
             }
             p { text-align: justify; text-indent: 1em; line-height: 1.5em; margin-top: 0; }
             
-            /* Letra Capital Flotante */
-            h1 + p::first-letter {
+            /* APUNTAMOS A LA CLASE INYECTADA POR PYTHON */
+            p.capitulo-inicio::first-letter {
                 float: left;
-                font-size: 3.5em;
+                font-size: 3.8em !important; /* !important vence al estilo de Word */
                 font-weight: bold;
                 line-height: 0.8em;
                 margin-right: 0.1em;
@@ -371,7 +381,7 @@ elif "5." in selected_module:
                     if curr_h.strip():
                         count += 1
                         c = epub.EpubHtml(title=curr_t, file_name=f"c_{count}.xhtml", lang=lang)
-                        # Salto de página manual SOLO entre capítulos (evita error página 1)
+                        # Salto de página manual SOLO entre capítulos
                         page_break = '<div style="page-break-before:always;"></div>' if count > 1 else ""
                         c.content = css + page_break + f"<h1>{curr_t}</h1>{curr_h}"
                         book.add_item(c); chapters.append(c)
@@ -389,5 +399,5 @@ elif "5." in selected_module:
         book.add_item(epub.EpubNcx()); book.add_item(epub.EpubNav())
         book.spine = ['nav'] + chapters
         bio_ep = BytesIO(); epub.write_epub(bio_ep, book, {})
-        st.success("✅ EPUB generado: Idioma + Índice + Títulos Visibles.")
-        st.download_button("⬇️ Descargar EPUB", bio_ep.getvalue(), f"{title}.epub")
+        st.success("✅ EPUB generado: Idioma + Índice + Letra Grande Forzada.")
+        st.download_button("⬇️ Descargar EPUB", bio.getvalue(), f"{title}.epub")
