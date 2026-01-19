@@ -178,6 +178,7 @@ elif "2." in selected_module:
     with col3:
         fix_titles = st.checkbox("📎 Forzar Títulos en Hoja Nueva", value=True)
         pro_start = st.checkbox("✨ Activar Letra Capital al Inicio", value=True)
+        start_style = st.selectbox("Estilo de Inicio:", ["Letra Capital (Big Letter)", "Frase Versalitas (Small Caps)"])
     with col4:
         reconstruct = st.checkbox("🔗 Unir párrafos rotos (Reconstructor)", value=True)
         justify_text = st.checkbox("📄 Justificar + Silabeo", value=True)
@@ -281,10 +282,10 @@ elif "4." in selected_module:
         st.download_button("⬇️ Descargar", bio.getvalue(), "Limpio.docx")
 
 # ==============================================================================
-# MÓDULO 5: GENERADOR EPUB (V6.6 - LETRA CAPITAL FORZADA)
+# MÓDULO 5: GENERADOR EPUB (V6.7 - FUERZA BRUTA)
 # ==============================================================================
 elif "5." in selected_module:
-    st.header("⚡ Generador EPUB 6.6 (Drop Cap Force)")
+    st.header("⚡ Generador EPUB 6.7 (Direct Inject)")
     uploaded_file = st.file_uploader("Sube Manuscrito (DOCX procesado)", key="mod5")
     
     col1, col2, col3 = st.columns(3)
@@ -300,7 +301,7 @@ elif "5." in selected_module:
             if p.style.name.startswith('Heading'):
                 p.text = p.text.replace('\n', '').strip()
 
-        # Eliminar párrafos vacíos "basura"
+        # Eliminar párrafos vacíos
         paragraphs_to_delete = []
         for i in range(len(doc_temp.paragraphs) - 1):
             curr = doc_temp.paragraphs[i]
@@ -324,28 +325,30 @@ elif "5." in selected_module:
         """
         result = mammoth.convert_to_html(buf, style_map=style_map)
         
-        # 4. INYECTOR DE ETIQUETA FÍSICA (LA SOLUCIÓN REAL)
+        # 4. INYECCIÓN DIRECTA DE ESTILO (LA SOLUCIÓN 6.7)
         soup = BeautifulSoup(result.value, 'html.parser')
         
+        # Estilo para la letra capital inyectado directamente en el HTML
+        # font-size: 3.5em; float: left; line-height: 0.8;
+        inline_style = "float: left; font-size: 3.5em; font-weight: bold; line-height: 0.8; margin-right: 0.1em; margin-top: -0.1em; color: black;"
+
         for h1 in soup.find_all('h1'):
             next_p = h1.find_next_sibling()
-            # Buscar el siguiente párrafo real
             while next_p and (next_p.name != 'p' or not next_p.get_text().strip()):
                 next_p = next_p.find_next_sibling()
             
             if next_p and next_p.name == 'p':
                 text = next_p.get_text()
                 if len(text) > 1:
-                    # Envolver la primera letra en un SPAN con clase
                     first_char = text[0]
                     rest = text[1:]
-                    new_html = f'<span class="dropcap">{first_char}</span>{rest}'
-                    # Reemplazar el contenido del párrafo
+                    # AQUÍ ESTÁ EL CAMBIO: STYLE DIRECTO
+                    new_html = f'<span style="{inline_style}">{first_char}</span>{rest}'
                     new_tag = BeautifulSoup(new_html, 'html.parser')
                     next_p.clear()
                     next_p.append(new_tag)
 
-        # 5. CSS BLINDADO (Apunta a la clase .dropcap)
+        # 5. CSS BASE (Solo para estructura)
         css = """<style>
             h1 { 
                 margin-top: 2em; 
@@ -354,17 +357,6 @@ elif "5." in selected_module:
                 margin-bottom: 1em;
             }
             p { text-align: justify; text-indent: 1em; line-height: 1.5em; margin-top: 0; }
-            
-            /* CLASE dropcap FÍSICA */
-            span.dropcap {
-                float: left;
-                font-size: 3.5em !important;
-                font-weight: bold;
-                line-height: 0.8em;
-                margin-right: 0.1em;
-                margin-top: -0.1em;
-                color: black;
-            }
         </style>"""
 
         content = soup.body if soup.body else soup
@@ -400,5 +392,5 @@ elif "5." in selected_module:
         book.spine = ['nav'] + chapters
         
         bio_ep = BytesIO(); epub.write_epub(bio_ep, book, {})
-        st.success("✅ EPUB generado: Idioma + Índice + Letra Grande Forzada.")
+        st.success("✅ EPUB generado: Idioma + Índice + Letra Grande (Inline Style).")
         st.download_button("⬇️ Descargar EPUB", bio_ep.getvalue(), f"{title}.epub")
