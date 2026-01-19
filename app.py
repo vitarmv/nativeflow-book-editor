@@ -52,6 +52,7 @@ with st.sidebar:
         
     st.divider()
     
+    # MENÚ PRINCIPAL
     selected_module = st.radio(
         "Selecciona Herramienta:",
         [
@@ -85,60 +86,61 @@ def enable_native_hyphenation(doc):
     create_attribute(hyphenation_zone, 'w:val', 'true')
     settings.append(hyphenation_zone)
 
-def prevent_runts_in_paragraph(paragraph):
-    text = paragraph.text.strip()
-    if not text or len(text) < 20: return 
-    last_space = text.rfind(' ')
-    if last_space != -1: paragraph.text = text[:last_space] + "\u00A0" + text[last_space+1:]
-
-def delete_paragraph(paragraph):
-    p = paragraph._element
-    p.getparent().remove(p)
-    p._p = p._element = None
-
-def stitch_paragraphs(doc):
-    for i in range(len(doc.paragraphs) - 2, -1, -1):
-        p_curr = doc.paragraphs[i]
-        p_next = doc.paragraphs[i+1]
-        text_curr = p_curr.text.strip()
-        text_next = p_next.text.strip()
-        if not text_curr or not text_next: continue
-        if p_curr.style.name.startswith('Heading') or p_next.style.name.startswith('Heading'): continue
-        if text_curr[-1] not in ['.', '!', '?', '"', '”', ':']:
-            p_curr.text = text_curr + " " + text_next
-            delete_paragraph(p_next)
-
 def nuclear_clean(text):
     if not text: return text
-    text = text.replace('\n', ' ').replace('\r', ' ').replace('\v', ' ').replace('\f', ' ')
     return " ".join(text.split())
-
-def clean_markdown(text):
-    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text); text = re.sub(r'\*(.*?)\*', r'\1', text)
-    text = re.sub(r'__(.*?)__', r'\1', text); text = re.sub(r'^#+\s*', '', text)
-    return nuclear_clean(text).strip()
 
 def call_api(prompt, temp=0.7):
     for _ in range(3):
-        try: return model.generate_content(prompt, generation_config={"temperature": temp}).text.strip()
-        except: time.sleep(1)
+        try:
+            return model.generate_content(prompt, generation_config={"temperature": temp}).text.strip()
+        except:
+            time.sleep(1)
     return "[ERROR API]"
 
 # ==============================================================================
-# MÓDULOS 1, 3, 4
+# MÓDULO 1: CORRECTOR
 # ==============================================================================
 if "1." in selected_module:
-    st.header("💎 Corrector"); uploaded_file = st.file_uploader("Docx", key="m1")
-elif "3." in selected_module:
-    st.header("📲 Workbook"); uploaded_file = st.file_uploader("Docx", key="m3")
-elif "4." in selected_module:
-    st.header("🧼 Limpiador"); uploaded_file = st.file_uploader("Docx", key="m4")
+    st.header("💎 Corrector de Estilo & Auditoría")
+    uploaded_file = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod1")
+
+    if uploaded_file:
+        doc = Document(uploaded_file)
+        tab1, tab2 = st.tabs(["📊 Auditoría", "🚀 Corrección Final"])
+        
+        with tab1:
+            if st.button("🔍 Auditar"):
+                audit_doc = Document()
+                audit_doc.add_heading("Reporte", 0)
+                p_bar = st.progress(0)
+                for i, p in enumerate(doc.paragraphs):
+                    if len(p.text) > 10:
+                        res = call_api(f"AUDIT this text. Output 'CLEAN' or issues. Text: '{p.text[:300]}'")
+                        if "CLEAN" not in res: audit_doc.add_paragraph(f"Párrafo {i+1}: {res}")
+                    p_bar.progress((i+1)/len(doc.paragraphs))
+                bio = BytesIO(); audit_doc.save(bio)
+                st.download_button("⬇️ Descargar Reporte", bio.getvalue(), "Reporte.docx")
+
+        with tab2:
+            if st.button("🚀 Corregir Libro"):
+                uploaded_file.seek(0)
+                new_doc = Document(uploaded_file)
+                p_bar = st.progress(0)
+                for i, (p_orig, p_dest) in enumerate(zip(doc.paragraphs, new_doc.paragraphs)):
+                    if len(p_orig.text) > 5:
+                        res = call_api(f"Rewrite to native English. Text: '{p_orig.text}'")
+                        clean_res = nuclear_clean(res)
+                        if "[ERROR" not in clean_res: p_dest.text = clean_res
+                    p_bar.progress((i+1)/len(doc.paragraphs))
+                bio = BytesIO(); new_doc.save(bio)
+                st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (BASE ESTABLE V5.1)
+# MÓDULO 2: MAQUETADOR KDP PRO (BASE ESTABLE)
 # ==============================================================================
 elif "2." in selected_module:
-    st.header("📏 Maquetador KDP PRO 5.1 (Estable)")
+    st.header("📏 Maquetador KDP PRO 5.1 (Base Estable)")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -148,16 +150,18 @@ elif "2." in selected_module:
         margins = st.radio("Márgenes:", ["Espejo (Doble Cara)", "Normales"])
 
     st.markdown("---")
+    st.subheader("🛠️ Opciones de Estilo")
+    
     col3, col4 = st.columns(2)
     with col3:
         fix_titles = st.checkbox("📎 Detectar Títulos", value=True)
         pro_start = st.checkbox("✨ Activar Inicio de Capítulo", value=True)
         start_style = st.selectbox("Estilo de Inicio:", ["Letra Capital (Big Letter)", "Frase Versalitas (Small Caps)"])
+        
     with col4:
-        reconstruct = st.checkbox("🔗 Unir párrafos rotos (Reconstructor)", value=True)
-        justify_text = st.checkbox("📄 Justificar + Silabeo", value=True)
+        fix_spaces = st.checkbox("☢️ Limpieza Nuclear", value=True)
+        justify_text = st.checkbox("📄 Justificar Texto (+Silabeo)", value=True)
         add_numbers = st.checkbox("🔢 Agregar Números de Página", value=True)
-        fix_runts = st.checkbox("🛡️ Evitar palabras sueltas (Runts)", value=True)
 
     uploaded_file = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod2")
 
@@ -165,11 +169,10 @@ elif "2." in selected_module:
         doc = Document(uploaded_file)
         theme = THEMES[theme_choice] 
         
-        if reconstruct: stitch_paragraphs(doc)
-        if justify_text: 
+        if justify_text:
             try: enable_native_hyphenation(doc)
             except: pass
-        
+
         if "6 x 9" in size: w, h = Inches(6), Inches(9)
         elif "5 x 8" in size: w, h = Inches(5), Inches(8)
         else: w, h = Inches(8.5), Inches(11)
@@ -186,54 +189,59 @@ elif "2." in selected_module:
 
         style = doc.styles['Normal']
         style.font.name = theme['font']; style.font.size = Pt(theme['size'])
-        style.paragraph_format.line_spacing = 1.25; style.paragraph_format.space_after = Pt(0)
-        style.paragraph_format.widow_control = True 
+        style.paragraph_format.line_spacing = 1.25; style.paragraph_format.space_after = Pt(0) 
         if justify_text: style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         
         for h in ['Heading 1', 'Heading 2']:
             try:
                 h_style = doc.styles[h]
-                h_style.font.name = theme['header']; h_style.font.color.rgb = RGBColor(0,0,0)
-                h_style.paragraph_format.space_before = Pt(0) 
-                h_style.paragraph_format.space_after = Pt(30) 
-                h_style.alignment = WD_ALIGN_PARAGRAPH.CENTER 
-                h_style.paragraph_format.page_break_before = True
+                h_style.font.name = theme['header']; h_style.font.color.rgb = RGBColor(0, 0, 0)
+                h_style.paragraph_format.space_before = Pt(0); h_style.paragraph_format.space_after = Pt(30) 
+                h_style.alignment = WD_ALIGN_PARAGRAPH.CENTER; h_style.paragraph_format.page_break_before = True
             except: pass
 
         total_p = len(doc.paragraphs)
         p_bar = st.progress(0)
         previous_was_heading = False 
-        
+
         for i, p in enumerate(doc.paragraphs):
+            if fix_spaces and p.text:
+                clean = nuclear_clean(p.text)
+                if clean != p.text: p.text = clean
+            
             text_clean = p.text.strip()
             if len(text_clean) < 2: continue 
 
-            is_heading = False
-            if p.style.name.startswith('Heading'): is_heading = True
-            elif len(text_clean) < 60 and (re.match(r'^(chapter|cap[íi]tulo)\b', text_clean, re.I) or text_clean.isupper()): is_heading = True
+            is_style_heading = p.style.name.startswith('Heading')
+            is_visual_heading = False
+            
+            if len(text_clean) < 60:
+                if re.match(r'^(chapter|cap[íi]tulo|part|parte|pr[óo]logo|prologue|intro)\b', text_clean, re.IGNORECASE):
+                    is_visual_heading = True
+                elif re.match(r'^[IVXLCDM]+\.?$', text_clean): is_visual_heading = True
+                elif text_clean.isupper() and len(text_clean) > 3: is_visual_heading = True
 
-            if is_heading:
+            if is_style_heading or is_visual_heading:
                 previous_was_heading = True
                 p.style = doc.styles['Heading 1']
                 p.text = "\n" + text_clean.upper() 
                 if fix_titles: p.paragraph_format.keep_with_next = True
+            
             else:
-                if fix_runts and len(text_clean) > 50: prevent_runts_in_paragraph(p)
                 if justify_text: p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                
                 if pro_start and previous_was_heading:
                     if "Big Letter" in start_style and len(text_clean) > 1:
-                        # MANTENEMOS LOGICA SIMPLE: BIG LETTER EN DOCX
-                        char = text_clean[0]; rest = text_clean[1:]
-                        p.text = ""; run = p.add_run(char)
-                        run.font.name = theme['header']; run.font.size = Pt(theme['size']+5); run.bold = True
-                        p.add_run(rest).font.name = theme['font']
+                        first_char = text_clean[0]; rest_text = text_clean[1:]
+                        p.text = "" 
+                        run_big = p.add_run(first_char)
+                        run_big.font.name = theme['header']; run_big.font.size = Pt(theme['size'] + 5); run_big.bold = True
+                        p.add_run(rest_text).font.name = theme['font']
                     elif "Small Caps" in start_style:
                         p.text = text_clean
                         p.runs[0].font.small_caps = True
                     previous_was_heading = False
                 else: previous_was_heading = False
-            
+
             if i % 10 == 0: p_bar.progress((i+1)/total_p)
 
         bio = BytesIO(); doc.save(bio)
@@ -241,25 +249,45 @@ elif "2." in selected_module:
         st.download_button("⬇️ Descargar Libro KDP", bio.getvalue(), "Libro_KDP_Pro.docx")
 
 # ==============================================================================
-# MÓDULO 5: GENERADOR EPUB (V5.9 - FIX ESPACIADO)
+# MÓDULOS 3 y 4
+# ==============================================================================
+elif "3." in selected_module:
+    st.header("📲 Workbook"); uploaded_file = st.file_uploader("Docx", key="m3")
+elif "4." in selected_module:
+    st.header("🧼 Limpiador"); uploaded_file = st.file_uploader("Docx", key="m4")
+
+# ==============================================================================
+# MÓDULO 5: GENERADOR EPUB (V5.9 - PARCHE KINDLE)
 # ==============================================================================
 elif "5." in selected_module:
-    st.header("⚡ Generador EPUB 5.9")
+    st.header("⚡ Generador EPUB 5.9 (Fix Kindle)")
     uploaded_file = st.file_uploader("Sube DOCX procesado", key="mod5")
     
     col1, col2, col3 = st.columns(3)
     with col1: book_title = st.text_input("Título", "Mi Libro")
     with col2: author_name = st.text_input("Autor", "Autor")
-    # 1. SOLUCIÓN ERROR IDIOMA: Selector de idioma
-    with col3: lang = st.selectbox("Idioma", ["en", "es"], help="Selecciona 'en' para libros en inglés")
+    with col3: lang = st.selectbox("Idioma", ["en", "es"], help="Inglés (en) / Español (es)")
 
     if uploaded_file and st.button("Convertir"):
-        # Limpieza de trucos Word (Enter \n)
+        # 1. LIMPIEZA INTELIGENTE DE WORD
         doc_temp = Document(uploaded_file)
+        
+        # Elimina enters (\n) en títulos
         for p in doc_temp.paragraphs:
             if p.style.name.startswith('Heading'):
                 p.text = p.text.replace('\n', '').strip()
+
+        # ELIMINA PÁRRAFOS VACÍOS DESPUÉS DE TÍTULOS (Para que la letra capital no falle)
+        paragraphs_to_delete = []
+        for i in range(len(doc_temp.paragraphs) - 1):
+            curr = doc_temp.paragraphs[i]
+            next_p = doc_temp.paragraphs[i+1]
+            if curr.style.name.startswith('Heading') and not next_p.text.strip():
+                paragraphs_to_delete.append(next_p)
         
+        for p in paragraphs_to_delete:
+            p._element.getparent().remove(p._element)
+
         buffer_limpio = BytesIO()
         doc_temp.save(buffer_limpio)
         buffer_limpio.seek(0)
@@ -270,26 +298,40 @@ elif "5." in selected_module:
         book.set_language(lang) 
         book.add_author(author_name)
         
-        # 2. SOLUCIÓN ÍNDICE: Mapa de estilos
+        # 2. MAPA DE ESTILOS (Para el Índice)
         style_map = "p[style-name='Heading 1'] => h1:fresh"
         
         result = mammoth.convert_to_html(buffer_limpio, style_map=style_map)
         soup = BeautifulSoup(result.value, 'html.parser')
         
-        # 3. SOLUCIÓN ESPACIADO FEO (El secreto está en line-height: 0.8em para la letra)
+        # 3. CSS BLINDADO PARA KINDLE
+        # padding-top: 50px -> Fuerza el espacio aunque sea la primera hoja.
+        # border-top: 1px solid transparent -> Truco para evitar colapso de márgenes.
+        # line-height: 0.8em -> Evita que la letra grande rompa el párrafo.
         css_style = """
         <style>
-            h1 { margin-top: 3em !important; text-align: center; page-break-before: always; color: black; }
-            p { text-align: justify; text-indent: 1em; margin-bottom: 0em; line-height: 1.5em; }
+            h1 { 
+                padding-top: 50px !important; 
+                margin-top: 0px;
+                border-top: 1px solid transparent; 
+                text-align: center; 
+                page-break-before: always; 
+                color: black; 
+            }
+            p { 
+                text-align: justify; 
+                text-indent: 1em; 
+                margin-bottom: 0em; 
+                line-height: 1.4em; 
+            }
             
-            /* CSS LETRA CAPITAL COMPACTA */
+            /* LETRA CAPITAL FLOTANTE */
             h1 + p::first-letter {
                 float: left;
                 font-size: 3.5em;
                 font-weight: bold;
-                line-height: 0.8em; /* ESTA ES LA CLAVE: Hace que la letra no empuje la línea */
-                padding-right: 0.1em;
-                padding-top: 0.1em;
+                line-height: 0.8em; 
+                margin-right: 0.1em;
                 color: black;
             }
         </style>
@@ -328,5 +370,5 @@ elif "5." in selected_module:
         book.spine = ['nav'] + chapters
         
         bio = BytesIO(); epub.write_epub(bio, book, {})
-        st.success("✅ EPUB Listo (Índice OK + Idioma OK + Espaciado Compacto).")
+        st.success("✅ EPUB Listo: (Fix: Título 1 visible + Letra Capital Ajustada).")
         st.download_button("⬇️ Descargar EPUB", bio.getvalue(), f"{book_title}.epub")
