@@ -137,7 +137,7 @@ if "1." in selected_module:
                 st.download_button("⬇️ Descargar Corregido", bio.getvalue(), "Libro_Corregido.docx")
 
 # ==============================================================================
-# MÓDULO 2: MAQUETADOR KDP PRO (BASE ESTABLE)
+# MÓDULO 2: MAQUETADOR KDP PRO (V5.1 - BASE ESTABLE)
 # ==============================================================================
 elif "2." in selected_module:
     st.header("📏 Maquetador KDP PRO 5.1 (Base Estable)")
@@ -169,10 +169,12 @@ elif "2." in selected_module:
         doc = Document(uploaded_file)
         theme = THEMES[theme_choice] 
         
+        # Activar Silabeo Nativo (Importante para justificado parejo)
         if justify_text:
             try: enable_native_hyphenation(doc)
             except: pass
 
+        # 1. PAGE SETUP
         if "6 x 9" in size: w, h = Inches(6), Inches(9)
         elif "5 x 8" in size: w, h = Inches(5), Inches(8)
         else: w, h = Inches(8.5), Inches(11)
@@ -187,17 +189,24 @@ elif "2." in selected_module:
                 add_page_number(p_footer)
                 p_footer.style.font.name = theme['font']; p_footer.style.font.size = Pt(10)
 
+        # 2. PROCESAMIENTO Y ESTILOS
         style = doc.styles['Normal']
-        style.font.name = theme['font']; style.font.size = Pt(theme['size'])
-        style.paragraph_format.line_spacing = 1.25; style.paragraph_format.space_after = Pt(0) 
+        style.font.name = theme['font']
+        style.font.size = Pt(theme['size'])
+        style.paragraph_format.line_spacing = 1.25 
+        style.paragraph_format.space_after = Pt(0) 
         if justify_text: style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         
+        # Configurar Títulos
         for h in ['Heading 1', 'Heading 2']:
             try:
                 h_style = doc.styles[h]
-                h_style.font.name = theme['header']; h_style.font.color.rgb = RGBColor(0, 0, 0)
-                h_style.paragraph_format.space_before = Pt(0); h_style.paragraph_format.space_after = Pt(30) 
-                h_style.alignment = WD_ALIGN_PARAGRAPH.CENTER; h_style.paragraph_format.page_break_before = True
+                h_style.font.name = theme['header']
+                h_style.font.color.rgb = RGBColor(0, 0, 0)
+                h_style.paragraph_format.space_before = Pt(0) 
+                h_style.paragraph_format.space_after = Pt(30) 
+                h_style.alignment = WD_ALIGN_PARAGRAPH.CENTER 
+                h_style.paragraph_format.page_break_before = True
             except: pass
 
         total_p = len(doc.paragraphs)
@@ -224,11 +233,13 @@ elif "2." in selected_module:
             if is_style_heading or is_visual_heading:
                 previous_was_heading = True
                 p.style = doc.styles['Heading 1']
+                # TRUCO V5.1: Enter para bajar título
                 p.text = "\n" + text_clean.upper() 
                 if fix_titles: p.paragraph_format.keep_with_next = True
             
-            else:
+            else: # Cuerpo
                 if justify_text: p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                
                 if pro_start and previous_was_heading:
                     if "Big Letter" in start_style and len(text_clean) > 1:
                         first_char = text_clean[0]; rest_text = text_clean[1:]
@@ -249,7 +260,7 @@ elif "2." in selected_module:
         st.download_button("⬇️ Descargar Libro KDP", bio.getvalue(), "Libro_KDP_Pro.docx")
 
 # ==============================================================================
-# MÓDULOS 3 y 4
+# MÓDULO 3 y 4 (Omitidos para ahorrar espacio, pero siguen ahí si los usas)
 # ==============================================================================
 elif "3." in selected_module:
     st.header("📲 Workbook"); uploaded_file = st.file_uploader("Docx", key="m3")
@@ -257,88 +268,65 @@ elif "4." in selected_module:
     st.header("🧼 Limpiador"); uploaded_file = st.file_uploader("Docx", key="m4")
 
 # ==============================================================================
-# MÓDULO 5: GENERADOR EPUB (V5.9 - PARCHE KINDLE)
+# MÓDULO 5: GENERADOR EPUB (V5.8 - ARREGLO VISUAL + INDICE)
 # ==============================================================================
 elif "5." in selected_module:
-    st.header("⚡ Generador EPUB 5.9 (Fix Kindle)")
+    st.header("⚡ Generador EPUB 5.8")
     uploaded_file = st.file_uploader("Sube DOCX procesado", key="mod5")
     
     col1, col2, col3 = st.columns(3)
     with col1: book_title = st.text_input("Título", "Mi Libro")
     with col2: author_name = st.text_input("Autor", "Autor")
-    with col3: lang = st.selectbox("Idioma", ["en", "es"], help="Inglés (en) / Español (es)")
+    with col3: lang = st.selectbox("Idioma Libro", ["en", "es"], help="Selecciona Inglés para Frankenstein")
 
     if uploaded_file and st.button("Convertir"):
-        # 1. LIMPIEZA INTELIGENTE DE WORD
+        # 1. LIMPIEZA DE TRUCOS VISUALES DE WORD (El Enter \n)
         doc_temp = Document(uploaded_file)
-        
-        # Elimina enters (\n) en títulos
         for p in doc_temp.paragraphs:
             if p.style.name.startswith('Heading'):
-                p.text = p.text.replace('\n', '').strip()
-
-        # ELIMINA PÁRRAFOS VACÍOS DESPUÉS DE TÍTULOS (Para que la letra capital no falle)
-        paragraphs_to_delete = []
-        for i in range(len(doc_temp.paragraphs) - 1):
-            curr = doc_temp.paragraphs[i]
-            next_p = doc_temp.paragraphs[i+1]
-            if curr.style.name.startswith('Heading') and not next_p.text.strip():
-                paragraphs_to_delete.append(next_p)
+                p.text = p.text.replace('\n', '').strip() # Quitamos el enter para que el CSS controle la altura
         
-        for p in paragraphs_to_delete:
-            p._element.getparent().remove(p._element)
-
         buffer_limpio = BytesIO()
         doc_temp.save(buffer_limpio)
         buffer_limpio.seek(0)
 
+        # 2. SETUP EPUB
         book = epub.EpubBook()
         book.set_identifier(str(uuid.uuid4()))
         book.set_title(book_title)
-        book.set_language(lang) 
+        book.set_language(lang) # AQUI SE ARREGLA EL ERROR DE IDIOMA DEL KINDLE
         book.add_author(author_name)
         
-        # 2. MAPA DE ESTILOS (Para el Índice)
+        # 3. MAPA DE ESTILOS (AQUI SE ARREGLA EL INDICE)
+        # Esto obliga a Mammoth a convertir 'Heading 1' en <h1> reales.
         style_map = "p[style-name='Heading 1'] => h1:fresh"
         
         result = mammoth.convert_to_html(buffer_limpio, style_map=style_map)
         soup = BeautifulSoup(result.value, 'html.parser')
         
-        # 3. CSS BLINDADO PARA KINDLE
-        # padding-top: 50px -> Fuerza el espacio aunque sea la primera hoja.
-        # border-top: 1px solid transparent -> Truco para evitar colapso de márgenes.
-        # line-height: 0.8em -> Evita que la letra grande rompa el párrafo.
+        # 4. CSS REPARADO (AQUI SE ARREGLA EL ESPACIADO FEO)
+        # line-height: 0.8em en la letra capital evita que empuje las lineas
         css_style = """
         <style>
-            h1 { 
-                padding-top: 50px !important; 
-                margin-top: 0px;
-                border-top: 1px solid transparent; 
-                text-align: center; 
-                page-break-before: always; 
-                color: black; 
-            }
-            p { 
-                text-align: justify; 
-                text-indent: 1em; 
-                margin-bottom: 0em; 
-                line-height: 1.4em; 
-            }
+            h1 { margin-top: 3em !important; text-align: center; page-break-before: always; color: black; }
+            p { text-align: justify; text-indent: 1em; line-height: 1.5em; margin-bottom: 0em; }
             
-            /* LETRA CAPITAL FLOTANTE */
+            /* CSS LETRA CAPITAL FLOTANTE */
             h1 + p::first-letter {
                 float: left;
                 font-size: 3.5em;
                 font-weight: bold;
                 line-height: 0.8em; 
                 margin-right: 0.1em;
-                color: black;
+                margin-top: -0.1em;
             }
         </style>
         """
 
+        # 5. LOGICA DE CAPITULOS
         content = soup.body if soup.body else soup
         chapters = []
+        # Buscar h1 (ahora sí existen gracias al style_map)
         headers = soup.find_all('h1') 
         
         if not headers:
@@ -352,6 +340,7 @@ elif "5." in selected_module:
                     if curr_html.strip():
                         count += 1
                         c = epub.EpubHtml(title=curr_title, file_name=f"c_{count}.xhtml")
+                        # Inyectamos CSS en cada capitulo
                         c.content = css_style + f"<h1>{curr_title}</h1>{curr_html}" if count > 1 else css_style + curr_html
                         book.add_item(c); chapters.append(c)
                     curr_title = elem.get_text()
@@ -370,5 +359,5 @@ elif "5." in selected_module:
         book.spine = ['nav'] + chapters
         
         bio = BytesIO(); epub.write_epub(bio, book, {})
-        st.success("✅ EPUB Listo: (Fix: Título 1 visible + Letra Capital Ajustada).")
+        st.success("✅ EPUB Listo (Índice OK + Idioma OK + Espaciado OK).")
         st.download_button("⬇️ Descargar EPUB", bio.getvalue(), f"{book_title}.epub")
