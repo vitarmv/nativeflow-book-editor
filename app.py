@@ -52,7 +52,6 @@ with st.sidebar:
         
     st.divider()
     
-    # MENÚ PRINCIPAL
     selected_module = st.radio(
         "Selecciona Herramienta:",
         [
@@ -241,7 +240,6 @@ elif "2." in selected_module:
                 if fix_runts and len(text_clean) > 50: prevent_runts_in_paragraph(p)
                 if justify_text: p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                 if pro_start and previous_was_heading:
-                    # Letra Capital en DOCX
                     if len(text_clean) > 1:
                         char = text_clean[0]; rest = text_clean[1:]
                         p.text = ""; run = p.add_run(char)
@@ -283,10 +281,10 @@ elif "4." in selected_module:
         st.download_button("⬇️ Descargar", bio.getvalue(), "Limpio.docx")
 
 # ==============================================================================
-# MÓDULO 5: GENERADOR EPUB (V6.5 - FIXED)
+# MÓDULO 5: GENERADOR EPUB (V6.6 - LETRA CAPITAL FORZADA)
 # ==============================================================================
 elif "5." in selected_module:
-    st.header("⚡ Generador EPUB 6.5 (Full)")
+    st.header("⚡ Generador EPUB 6.6 (Drop Cap Force)")
     uploaded_file = st.file_uploader("Sube Manuscrito (DOCX procesado)", key="mod5")
     
     col1, col2, col3 = st.columns(3)
@@ -326,18 +324,28 @@ elif "5." in selected_module:
         """
         result = mammoth.convert_to_html(buf, style_map=style_map)
         
-        # 4. INYECTOR DE CLASES
+        # 4. INYECTOR DE ETIQUETA FÍSICA (LA SOLUCIÓN REAL)
         soup = BeautifulSoup(result.value, 'html.parser')
         
         for h1 in soup.find_all('h1'):
-            next_sibling = h1.find_next_sibling()
-            while next_sibling and next_sibling.name != 'p' and not next_sibling.get_text().strip():
-                next_sibling = next_sibling.find_next_sibling()
+            next_p = h1.find_next_sibling()
+            # Buscar el siguiente párrafo real
+            while next_p and (next_p.name != 'p' or not next_p.get_text().strip()):
+                next_p = next_p.find_next_sibling()
             
-            if next_sibling and next_sibling.name == 'p':
-                next_sibling['class'] = next_sibling.get('class', []) + ['capitulo-inicio']
+            if next_p and next_p.name == 'p':
+                text = next_p.get_text()
+                if len(text) > 1:
+                    # Envolver la primera letra en un SPAN con clase
+                    first_char = text[0]
+                    rest = text[1:]
+                    new_html = f'<span class="dropcap">{first_char}</span>{rest}'
+                    # Reemplazar el contenido del párrafo
+                    new_tag = BeautifulSoup(new_html, 'html.parser')
+                    next_p.clear()
+                    next_p.append(new_tag)
 
-        # 5. CSS BLINDADO
+        # 5. CSS BLINDADO (Apunta a la clase .dropcap)
         css = """<style>
             h1 { 
                 margin-top: 2em; 
@@ -347,10 +355,10 @@ elif "5." in selected_module:
             }
             p { text-align: justify; text-indent: 1em; line-height: 1.5em; margin-top: 0; }
             
-            /* CLASE FORZADA */
-            p.capitulo-inicio::first-letter {
+            /* CLASE dropcap FÍSICA */
+            span.dropcap {
                 float: left;
-                font-size: 3.8em !important;
+                font-size: 3.5em !important;
                 font-weight: bold;
                 line-height: 0.8em;
                 margin-right: 0.1em;
