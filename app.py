@@ -281,10 +281,10 @@ elif "4." in selected_module:
         st.download_button("⬇️ Descargar", bio.getvalue(), "Limpio.docx")
 
 # ==============================================================================
-# MÓDULO 5: GENERADOR EPUB (V7.0 - CALIBRADO 2 LINEAS)
+# MÓDULO 5: GENERADOR EPUB (V7.2 - CONTROL TOTAL)
 # ==============================================================================
 elif "5." in selected_module:
-    st.header("⚡ Generador EPUB 7.0 (2-Line Drop Cap)")
+    st.header("⚡ Generador EPUB 7.2 (Control Manual)")
     uploaded_file = st.file_uploader("Sube Manuscrito (DOCX procesado)", key="mod5")
     
     col1, col2, col3 = st.columns(3)
@@ -292,10 +292,14 @@ elif "5." in selected_module:
     with col2: author = st.text_input("Autor", "Autor")
     with col3: lang = st.selectbox("Idioma", ["es", "en", "fr", "it", "pt"]) 
     
+    # --- NOVEDAD V7.2: SLIDER DE TAMAÑO ---
+    st.markdown("---")
+    st.subheader("🎛️ Calibración de Letra Capital")
+    dropcap_size = st.slider("Tamaño de la Letra (em):", min_value=1.5, max_value=5.0, value=2.4, step=0.1, help="Si sale muy grande, baja este número. Lo normal es entre 2.2 y 2.8.")
+    
     if uploaded_file and st.button("Convertir"):
         # 1. LIMPIEZA PREVIA
         doc_temp = Document(uploaded_file)
-        # Elimina Enters de títulos
         for p in doc_temp.paragraphs:
             if p.style.name.startswith('Heading'):
                 p.text = p.text.replace('\n', '').strip()
@@ -323,12 +327,13 @@ elif "5." in selected_module:
         """
         result = mammoth.convert_to_html(buf, style_map=style_map)
         
-        # 4. INYECCIÓN ESTILO DIRECTO (CALIBRADO A 2 LÍNEAS)
+        # 4. INYECCIÓN ESTILO DIRECTO (USANDO EL SLIDER)
         soup = BeautifulSoup(result.value, 'html.parser')
         
-        # AJUSTE V7.0: Tamaño 2.6em para ocupar 2 líneas exactas
-        inline_style = "float: left; font-size: 2.6em; font-weight: bold; line-height: 0.8; margin-right: 0.12em; margin-top: -0.05em; color: black;"
+        # Usamos la variable dropcap_size del slider
+        inline_style = f"float: left; font-size: {dropcap_size}em; font-weight: bold; line-height: 0.8; margin-right: 0.12em; margin-top: -0.05em; color: black;"
 
+        count_caps = 0
         for h1 in soup.find_all('h1'):
             next_p = h1.find_next_sibling()
             while next_p and (next_p.name != 'p' or not next_p.get_text().strip()):
@@ -343,6 +348,7 @@ elif "5." in selected_module:
                     new_tag = BeautifulSoup(new_html, 'html.parser')
                     next_p.clear()
                     next_p.append(new_tag)
+                    count_caps += 1
 
         # 5. CSS BASE
         css = """<style>
@@ -365,7 +371,6 @@ elif "5." in selected_module:
                     if curr_h.strip():
                         count += 1
                         c = epub.EpubHtml(title=curr_t, file_name=f"c_{count}.xhtml", lang=lang)
-                        # Fix sintaxis V6.9: Agregado 'else ""'
                         page_break = '<div style="page-break-before:always;"></div>' if count > 1 else ""
                         c.content = css + page_break + f"<h1>{curr_t}</h1>{curr_h}"
                         book.add_item(c); chapters.append(c)
@@ -384,5 +389,5 @@ elif "5." in selected_module:
         book.spine = ['nav'] + chapters
         
         bio_ep = BytesIO(); epub.write_epub(bio_ep, book, {})
-        st.success("✅ EPUB generado: Letra Capital de 2 líneas (Calibrada).")
+        st.success(f"✅ EPUB generado: Tamaño {dropcap_size}em aplicado a {count_caps} capítulos.")
         st.download_button("⬇️ Descargar EPUB", bio_ep.getvalue(), f"{title}.epub")
