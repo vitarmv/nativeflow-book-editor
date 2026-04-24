@@ -366,7 +366,7 @@ elif "3." in selected_module:
 
     # --- PESTAÑA 2: EL NUEVO MOTOR DE ADAPTACIÓN TRANMEDIA ---
     with tab_ai:
-        st.info("La IA detectará ejercicios y códigos QR, transformándolos en prosa narrativa y reflexión interna.")
+        st.info("La IA detectará ejercicios y los transformará en prosa narrativa. Los QR de reseñas se mantendrán intactos.")
         
         default_kindle_prompt = """Actúa como un editor experto en adaptación digital (eBooks).
         Tu objetivo es transformar este fragmento de un libro físico interactivo en prosa narrativa fluida.
@@ -375,10 +375,10 @@ elif "3." in selected_module:
         2. Si el texto pide acciones físicas (ej: "Dibuja la silueta", "Escribe en el espacio"), transfórmalo en ejercicios de visualización o meditación mental.
         3. Mantén el tono empático, cálido y la voz original del autor.
         4. Devuelve ÚNICAMENTE el texto adaptado, sin comentarios adicionales.
-        """
+        5. MUY IMPORTANTE: NO modifiques ni elimines los llamados a la acción para dejar reseñas en Amazon ni las menciones a escanear Códigos QR."""
         
         with st.expander("⚙️ Configurar Prompt de Adaptación", expanded=False):
-            kindle_prompt = st.text_area("Instrucciones al Motor IA:", default_kindle_prompt, height=150)
+            kindle_prompt = st.text_area("Instrucciones al Motor IA:", default_kindle_prompt, height=180)
             
         uploaded_file_ai = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod3_ai")
         
@@ -389,8 +389,8 @@ elif "3." in selected_module:
             
             total_p = len(doc.paragraphs)
             
-            # Lista de palabras clave que delatan elementos estáticos a eliminar
-            keywords_to_delete = ["código qr", "escaneando el código", "espacio para dibujar"]
+            # Lista actualizada: Elementos físicos puros que no requieren IA
+            keywords_to_delete = ["espacio para dibujar", "recorta esta página", "pega aquí"] 
             
             for i, p in enumerate(doc.paragraphs):
                 text = p.text.strip()
@@ -403,8 +403,8 @@ elif "3." in selected_module:
                     continue
                 
                 # 2. Detección Inteligente (Cosas que la IA debe reescribir)
-                # Detecta líneas en blanco (___), o palabras clave de acción física
-                if re.search(r"([_.\-]){4,}", text) or any(k in text.lower() for k in ["ejercicio:", "dibuja", "escribe", "completa"]):
+                # Omitimos explícitamente enviar a la IA cualquier párrafo que hable de QR o Amazon
+                if (re.search(r"([_.\-]){4,}", text) or any(k in text.lower() for k in ["ejercicio:", "dibuja", "escribe", "completa"])) and "qr" not in text.lower() and "amazon" not in text.lower():
                     prompt_final = f"{kindle_prompt}\n\nTEXTO ORIGINAL:\n'{text}'"
                     res = call_api(prompt_final)
                     clean = clean_markdown(res)
