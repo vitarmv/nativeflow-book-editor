@@ -68,7 +68,7 @@ with st.sidebar:
     )
     
     st.divider()
-    MODEL_NAME = 'models/gemini-flash-latest' 
+    MODEL_NAME = 'models/gemini-2.5-pro' 
     model = genai.GenerativeModel(MODEL_NAME)
 
 # --- 4. FUNCIONES AUXILIARES ---
