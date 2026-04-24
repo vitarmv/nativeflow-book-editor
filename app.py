@@ -346,15 +346,78 @@ elif "2." in selected_module:
 # MÓDULO 3: WORKBOOK CLEANER
 # ==============================================================================
 elif "3." in selected_module:
-    st.header("📲 Workbook Cleaner (Kindle)")
-    cta_text = st.text_area("Texto CTA:", "🛑 (Ejercicio): Completa esto en tu Cuaderno.", height=80)
-    uploaded_file = st.file_uploader("Sube manuscrito", key="mod3")
-    if uploaded_file and st.button("Limpiar"):
-        doc = Document(uploaded_file)
-        for p in doc.paragraphs:
-            if re.search(r"([_.\-]){4,}", p.text): p.text = cta_text 
-        bio = BytesIO(); doc.save(bio)
-        st.download_button("⬇️ Descargar", bio.getvalue(), "Ebook.docx")
+    st.header("📲 Adaptador Kindle & Workbook Cleaner")
+    st.markdown("Prepara tu manuscrito para formato eBook eliminando interacciones físicas y adaptando la narrativa.")
+    
+    # PROTECCIÓN DEL CÓDIGO: Separamos la lógica en dos pestañas
+    tab_fast, tab_ai = st.tabs(["⚡ Limpieza Rápida (Clásica)", "🤖 Adaptación Narrativa IA (Avanzada)"])
+    
+    # --- PESTAÑA 1: TU CÓDIGO ORIGINAL INTACTO ---
+    with tab_fast:
+        st.info("Utiliza expresiones regulares para reemplazar líneas de ejercicios por un CTA estático.")
+        cta_text = st.text_area("Texto CTA:", "🛑 (Ejercicio): Completa esto en tu Cuaderno.", height=80)
+        uploaded_file = st.file_uploader("Sube manuscrito", key="mod3_orig")
+        if uploaded_file and st.button("Limpiar (Clásico)"):
+            doc = Document(uploaded_file)
+            for p in doc.paragraphs:
+                if re.search(r"([_.\-]){4,}", p.text): p.text = cta_text 
+            bio = BytesIO(); doc.save(bio)
+            st.download_button("⬇️ Descargar", bio.getvalue(), "Ebook_Limpio.docx")
+
+    # --- PESTAÑA 2: EL NUEVO MOTOR DE ADAPTACIÓN TRANMEDIA ---
+    with tab_ai:
+        st.info("La IA detectará ejercicios y códigos QR, transformándolos en prosa narrativa y reflexión interna.")
+        
+        default_kindle_prompt = """Actúa como un editor experto en adaptación digital (eBooks).
+        Tu objetivo es transformar este fragmento de un libro físico interactivo en prosa narrativa fluida.
+        REGLAS:
+        1. Convierte las líneas para rellenar (___) en preguntas retóricas o invitaciones a la reflexión ("Tómate un momento para pensar en...").
+        2. Si el texto pide acciones físicas (ej: "Dibuja la silueta", "Escribe en el espacio"), transfórmalo en ejercicios de visualización o meditación mental.
+        3. Mantén el tono empático, cálido y la voz original del autor.
+        4. Devuelve ÚNICAMENTE el texto adaptado, sin comentarios adicionales.
+        """
+        
+        with st.expander("⚙️ Configurar Prompt de Adaptación", expanded=False):
+            kindle_prompt = st.text_area("Instrucciones al Motor IA:", default_kindle_prompt, height=150)
+            
+        uploaded_file_ai = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod3_ai")
+        
+        if uploaded_file_ai and st.button("🚀 Iniciar Adaptación Profunda"):
+            doc = Document(uploaded_file_ai)
+            progress_text = "Analizando y adaptando el manuscrito..."
+            my_bar = st.progress(0, text=progress_text)
+            
+            total_p = len(doc.paragraphs)
+            
+            # Lista de palabras clave que delatan elementos estáticos a eliminar
+            keywords_to_delete = ["código qr", "escaneando el código", "espacio para dibujar"]
+            
+            for i, p in enumerate(doc.paragraphs):
+                text = p.text.strip()
+                if not text:
+                    continue
+                    
+                # 1. Limpieza Nuclear (Cosas que simplemente no van en el eBook)
+                if any(keyword in text.lower() for keyword in keywords_to_delete):
+                    delete_paragraph(p)
+                    continue
+                
+                # 2. Detección Inteligente (Cosas que la IA debe reescribir)
+                # Detecta líneas en blanco (___), o palabras clave de acción física
+                if re.search(r"([_.\-]){4,}", text) or any(k in text.lower() for k in ["ejercicio:", "dibuja", "escribe", "completa"]):
+                    prompt_final = f"{kindle_prompt}\n\nTEXTO ORIGINAL:\n'{text}'"
+                    res = call_api(prompt_final)
+                    clean = clean_markdown(res)
+                    if "[ERROR" not in clean:
+                        p.text = clean
+                        
+                my_bar.progress((i + 1) / total_p, text=f"Procesando {i+1}/{total_p}")
+                
+            my_bar.empty()
+            bio = BytesIO()
+            doc.save(bio)
+            st.success("✅ ¡Adaptación Narrativa Terminada!")
+            st.download_button("⬇️ Descargar eBook Narrativo", bio.getvalue(), "Mindful_Monsters_eBook.docx", key="dl_narrative")
 
 # ==============================================================================
 # MÓDULO 4: LIMPIADOR
