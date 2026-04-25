@@ -126,9 +126,37 @@ def clean_markdown(text):
     return nuclear_clean(text).strip()
 
 def call_api(prompt, temp=0.7):
-    for _ in range(3):
-        try: return model.generate_content(prompt, generation_config={"temperature": temp}).text.strip()
-        except: time.sleep(1)
+    # 1. Apagamos los filtros de seguridad para que permita términos de psicología (ansiedad, miedo, etc.)
+    safety_settings = [
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+    ]
+    
+    last_error = ""
+    
+    for intento in range(3):
+        try:
+            # 2. Llamamos a la API con los filtros apagados
+            response = model.generate_content(
+                prompt, 
+                generation_config={"temperature": temp},
+                safety_settings=safety_settings
+            )
+            
+            # 3. Pausa OBLIGATORIA de 2.5 segundos para no saturar el servidor de Google
+            time.sleep(2.5) 
+            
+            return response.text.strip()
+            
+        except Exception as e:
+            # Si hay un error, guardamos el mensaje real y esperamos 4 segundos antes de reintentar
+            last_error = str(e)
+            time.sleep(4) 
+            
+    # Si falla los 3 intentos, mostramos el ERROR REAL en la pantalla para saber exactamente qué pasó
+    st.error(f"🛑 Error interno de Google: {last_error}")
     return "[ERROR API]"
 
 # ==============================================================================
