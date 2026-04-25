@@ -393,15 +393,15 @@ elif "3." in selected_module:
             st.download_button("⬇️ Descargar", bio.getvalue(), "Ebook_Limpio.docx")
 
     
-# --- PESTAÑA 2: EL NUEVO MOTOR DE ADAPTACIÓN TRANMEDIA ---
+## --- PESTAÑA 2: EL NUEVO MOTOR DE ADAPTACIÓN TRANMEDIA ---
     with tab_ai:
-        st.info("La IA agrupará cuestionarios y cartas enteras en bloques para no perder el contexto, transformándolos en prosa narrativa fluida.")
+        st.info("La IA agrupará cuestionarios enteros en bloques. Procesamiento seguro en reversa activo.")
         
         default_kindle_prompt = """Actúa como un editor experto en adaptación digital (eBooks) de libros de psicología infantil.
         Tu objetivo es transformar este bloque de ejercicios interactivos (cuestionarios, listas, cartas para rellenar o espacios en blanco) en prosa narrativa fluida y reflexiva.
         
         REGLAS ESTRICTAS:
-        1. Convierte las líneas para rellenar (___), formularios o cartas ("Querido ___") en narrativa o invitaciones a la visualización. (Ej: "Tómate un momento para pensar qué le dirías a tu monstruo...").
+        1. Convierte las líneas para rellenar (___), formularios o cartas ("Querido ___") en narrativa o invitaciones a la visualización.
         2. Transforma las listas de preguntas (¿?) en reflexiones suaves en formato párrafo.
         3. Si el texto pide acciones físicas (dibuja, escribe), transfórmalo en un ejercicio mental o de respiración.
         4. Mantén la voz cálida, empática y esperanzadora del autor ("Cognita Vital").
@@ -416,11 +416,19 @@ elif "3." in selected_module:
         
         if uploaded_file_ai and st.button("🚀 Iniciar Adaptación Profunda"):
             doc = Document(uploaded_file_ai)
-            my_bar = st.progress(0, text="Escaneando la estructura del documento...")
+            my_bar = st.progress(0, text="Escaneando y limpiando la estructura del documento...")
+            
+            # PASO 0: Limpieza Nuclear Segura (Borramos esto primero para no romper los números luego)
+            for p in list(doc.paragraphs):
+                if any(k in p.text.lower() for k in ["espacio para dibujar", "recorta esta página", "pega aquí"]):
+                    delete_paragraph(p)
+            
+            # Refrescamos la lista de párrafos exactos después de la limpieza
+            doc_paras = doc.paragraphs
             
             # PASO 1: Identificar todos los párrafos que pertenecen a un ejercicio
             exercise_indices = []
-            for i, p in enumerate(doc.paragraphs):
+            for i, p in enumerate(doc_paras):
                 text = p.text.strip()
                 text_lower = text.lower()
                 if len(text) < 2: continue
@@ -430,16 +438,12 @@ elif "3." in selected_module:
                     continue
                     
                 is_ex = False
-                # Regla A: Líneas en blanco (Los renglones con _____)
                 if re.search(r"([_.\-]){3,}", text): is_ex = True
-                # Regla B: Preguntas cortas de cuestionario o viñetas
                 elif (text.startswith("¿") or text.startswith("•") or text.startswith("-")) and "?" in text: is_ex = True
-                # Regla C: Palabras clave de cartas o partes del Capítulo 7
                 elif any(k in text_lower for k in ["ejercicio:", "dibuja", "escribe tu", "completa", "querido", "prometo", "mi monstruo suena", "mi monstruo se ve"]): is_ex = True
-                # Regla D: Look-ahead para títulos de listas (como "Mi monstruo suena como:")
                 elif ":" in text and len(text) < 100:
                     for j in range(1, 4):
-                        if i + j < len(doc.paragraphs) and re.search(r"([_.\-]){3,}", doc.paragraphs[i+j].text):
+                        if i + j < len(doc_paras) and re.search(r"([_.\-]){3,}", doc_paras[i+j].text):
                             is_ex = True; break
                 
                 if is_ex:
@@ -450,7 +454,6 @@ elif "3." in selected_module:
             if exercise_indices:
                 current_block = [exercise_indices[0]]
                 for idx in exercise_indices[1:]:
-                    # Si los párrafos están juntos (o separados solo por 1 salto vacío ¶), se agrupan
                     if idx - current_block[-1] <= 2: 
                         current_block.append(idx)
                     else:
@@ -458,38 +461,37 @@ elif "3." in selected_module:
                         current_block = [idx]
                 blocks.append(current_block)
             
-            # PASO 3: Procesar cada bloque entero con la IA
+            # PASO 3: Procesar bloques EN REVERSA (La cura definitiva para el IndexError)
             total_blocks = len(blocks)
             if total_blocks == 0:
-                st.warning("No se detectaron ejercicios para adaptar. ¿Estás seguro de que este es el archivo correcto?")
+                st.warning("No se detectaron ejercicios para adaptar.")
             else:
-                for b_idx, block in enumerate(blocks):
-                    # Unimos todo el texto del bloque para que la IA lea el contexto completo
-                    block_text = "\n".join([doc.paragraphs[i].text.strip() for i in block if doc.paragraphs[i].text.strip()])
+                # Procesamos usando reversed(blocks) para ir de abajo hacia arriba
+                for b_idx, block in enumerate(reversed(blocks)):
+                    # Calculamos el número real del bloque para mostrarlo bien en pantalla
+                    actual_num = total_blocks - b_idx
                     
-                    st.toast(f"🔍 Adaptando bloque {b_idx+1}/{total_blocks}...")
+                    block_text = "\n".join([doc_paras[i].text.strip() for i in block if doc_paras[i].text.strip()])
+                    st.toast(f"🔍 Adaptando bloque {actual_num}/{total_blocks}...")
                     
                     prompt_final = f"{kindle_prompt}\n\nBLOQUE COMPLETO A ADAPTAR:\n{block_text}"
                     res = call_api(prompt_final)
                     
                     if "[ERROR" not in res:
                         clean = clean_markdown(res)
-                        # Pegar la narrativa final en el primer párrafo del bloque original
-                        doc.paragraphs[block[0]].text = clean
-                        # Borrar todos los demás párrafos del cuestionario para limpiar el documento
-                        for i in block[1:]:
-                            delete_paragraph(doc.paragraphs[i])
-                        st.info(f"✅ Bloque {b_idx+1} transformado:\n{clean[:100]}...")
+                        # Pegar la narrativa final en el primer párrafo del bloque
+                        doc_paras[block[0]].text = clean
+                        
+                        # Borrar el resto del bloque también de abajo hacia arriba
+                        for i in reversed(block[1:]):
+                            delete_paragraph(doc_paras[i])
+                            
+                        st.info(f"✅ Bloque {actual_num} transformado:\n{clean[:100]}...")
                     else:
-                        st.error(f"❌ Error de API en el bloque {b_idx+1}")
+                        st.error(f"❌ Error de API en el bloque {actual_num}")
                         
                     my_bar.progress((b_idx + 1) / total_blocks, text=f"Procesando bloques {b_idx+1}/{total_blocks}")
                     
-                # Limpieza final rápida de palabras físicas aisladas
-                for p in doc.paragraphs:
-                    if any(k in p.text.lower() for k in ["espacio para dibujar", "recorta esta página", "pega aquí"]):
-                        delete_paragraph(p)
-                        
                 my_bar.empty()
                 bio = BytesIO()
                 doc.save(bio)
