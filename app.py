@@ -365,19 +365,19 @@ elif "3." in selected_module:
             st.download_button("⬇️ Descargar", bio.getvalue(), "Ebook_Limpio.docx")
 
     # --- PESTAÑA 2: EL NUEVO MOTOR DE ADAPTACIÓN TRANMEDIA ---
-    with tab_ai:
-        st.info("La IA detectará ejercicios, cartas y cuestionarios, transformándolos en prosa narrativa. Los QR de Amazon están protegidos.")
+with tab_ai:
+        st.info("La IA agrupará cuestionarios y cartas enteras en bloques para no perder el contexto, transformándolos en prosa narrativa fluida.")
         
         default_kindle_prompt = """Actúa como un editor experto en adaptación digital (eBooks) de libros de psicología infantil.
-        Tu objetivo es transformar este fragmento de un libro físico interactivo en prosa narrativa fluida y reflexiva.
+        Tu objetivo es transformar este bloque de ejercicios interactivos (cuestionarios, listas, cartas para rellenar o espacios en blanco) en prosa narrativa fluida y reflexiva.
         
         REGLAS ESTRICTAS:
         1. Convierte las líneas para rellenar (___), formularios o cartas ("Querido ___") en narrativa o invitaciones a la visualización. (Ej: "Tómate un momento para pensar qué le dirías a tu monstruo...").
-        2. Transforma las preguntas directas o viñetas de cuestionario en reflexiones suaves.
-        3. Si el texto pide acciones físicas (dibuja, escribe, completa), transfórmalo en un ejercicio mental o de respiración.
+        2. Transforma las listas de preguntas (¿?) en reflexiones suaves en formato párrafo.
+        3. Si el texto pide acciones físicas (dibuja, escribe), transfórmalo en un ejercicio mental o de respiración.
         4. Mantén la voz cálida, empática y esperanzadora del autor ("Cognita Vital").
-        5. Devuelve ÚNICAMENTE el texto adaptado, sin comentarios, sin comillas extra, y SIN espacios en blanco (___).
-        6. NO modifiques llamadas a la acción para dejar reseñas en Amazon ni menciones a Códigos QR.
+        5. Devuelve ÚNICAMENTE el texto adaptado en formato de párrafos normales. SIN viñetas, SIN comentarios extra, y SIN espacios en blanco (___).
+        6. NO modifiques llamadas a la acción de Amazon ni códigos QR.
         """
         
         with st.expander("⚙️ Configurar Prompt de Adaptación", expanded=False):
@@ -385,70 +385,87 @@ elif "3." in selected_module:
             
         uploaded_file_ai = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod3_ai")
         
-        # AQUÍ COMIENZA LA ACCIÓN DEL BOTÓN
         if uploaded_file_ai and st.button("🚀 Iniciar Adaptación Profunda"):
             doc = Document(uploaded_file_ai)
-            progress_text = "Analizando y adaptando el manuscrito..."
-            my_bar = st.progress(0, text=progress_text)
+            my_bar = st.progress(0, text="Escaneando la estructura del documento...")
             
-            total_p = len(doc.paragraphs)
-            
-            # AQUÍ ES DONDE ENTRA EL NUEVO BUCLE FOR "QUIRÚRGICO"
+            # PASO 1: Identificar todos los párrafos que pertenecen a un ejercicio
+            exercise_indices = []
             for i, p in enumerate(doc.paragraphs):
                 text = p.text.strip()
-                if len(text) < 3:
-                    continue
-                    
                 text_lower = text.lower()
+                if len(text) < 2: continue
                 
-                # 1. Limpieza Nuclear (Cosas físicas que simplemente se borran)
-                if any(keyword in text_lower for keyword in ["espacio para dibujar", "recorta esta página", "pega aquí"]):
-                    delete_paragraph(p)
+                # Protegemos Amazon y QR
+                if "qr" in text_lower or "amazon" in text_lower:
                     continue
-                
-                # 2. Súper Detector QUIRÚRGICO (Evita falsos positivos)
-                is_exercise = False
-                
-                # Verificamos si el párrafo actual tiene guiones/líneas de relleno
-                current_has_blanks = bool(re.search(r"([_.\-]){3,}", text))
-                
-                # Verificamos si el SIGUIENTE párrafo tiene líneas de relleno (Look-ahead)
-                next_has_blanks = False
-                if i + 1 < total_p:
-                    next_has_blanks = bool(re.search(r"([_.\-]){3,}", doc.paragraphs[i+1].text))
-                
-                # REGLA A: Si tiene guiones, es un ejercicio seguro.
-                if current_has_blanks:
-                    is_exercise = True
                     
-                # REGLA B: Si tiene dos puntos (:) o pregunta (¿?) PERO el siguiente renglón es de relleno.
-                elif (":" in text or "¿" in text) and next_has_blanks:
-                    is_exercise = True
+                is_ex = False
+                # Regla A: Líneas en blanco (Los renglones con _____)
+                if re.search(r"([_.\-]){3,}", text): is_ex = True
+                # Regla B: Preguntas cortas de cuestionario o viñetas
+                elif (text.startswith("¿") or text.startswith("•") or text.startswith("-")) and "?" in text: is_ex = True
+                # Regla C: Palabras clave de cartas o partes del Capítulo 7
+                elif any(k in text_lower for k in ["ejercicio:", "dibuja", "escribe tu", "completa", "querido", "prometo", "mi monstruo suena", "mi monstruo se ve"]): is_ex = True
+                # Regla D: Look-ahead para títulos de listas (como "Mi monstruo suena como:")
+                elif ":" in text and len(text) < 100:
+                    for j in range(1, 4):
+                        if i + j < len(doc.paragraphs) and re.search(r"([_.\-]){3,}", doc.paragraphs[i+j].text):
+                            is_ex = True; break
+                
+                if is_ex:
+                    exercise_indices.append(i)
                     
-                # REGLA C: Palabras comando indiscutibles.
-                elif any(k in text_lower for k in ["ejercicio:", "dibuja", "escribe tu", "completa"]):
-                    is_exercise = True
-
-                # 3. Procesamiento con IA (Si pasó el filtro quirúrgico)
-                if is_exercise and "qr" not in text_lower and "amazon" not in text_lower:
+            # PASO 2: Agrupar índices consecutivos en "Bloques de Ejercicio"
+            blocks = []
+            if exercise_indices:
+                current_block = [exercise_indices[0]]
+                for idx in exercise_indices[1:]:
+                    # Si los párrafos están juntos (o separados solo por 1 salto vacío ¶), se agrupan
+                    if idx - current_block[-1] <= 2: 
+                        current_block.append(idx)
+                    else:
+                        blocks.append(current_block)
+                        current_block = [idx]
+                blocks.append(current_block)
+            
+            # PASO 3: Procesar cada bloque entero con la IA
+            total_blocks = len(blocks)
+            if total_blocks == 0:
+                st.warning("No se detectaron ejercicios para adaptar. ¿Estás seguro de que este es el archivo correcto?")
+            else:
+                for b_idx, block in enumerate(blocks):
+                    # Unimos todo el texto del bloque para que la IA lea el contexto completo
+                    block_text = "\n".join([doc.paragraphs[i].text.strip() for i in block if doc.paragraphs[i].text.strip()])
                     
-                    # Le enviamos a la IA el párrafo actual + el siguiente (si son líneas) para que entienda todo el bloque
-                    context = doc.paragraphs[i-1].text if i > 0 else ""
-                    prompt_final = f"{kindle_prompt}\n\nCONTEXTO PREVIO:\n'{context}'\n\nTEXTO A ADAPTAR:\n'{text}'"
+                    st.toast(f"🔍 Adaptando bloque {b_idx+1}/{total_blocks}...")
                     
+                    prompt_final = f"{kindle_prompt}\n\nBLOQUE COMPLETO A ADAPTAR:\n{block_text}"
                     res = call_api(prompt_final)
-                    clean = clean_markdown(res)
-                    if "[ERROR" not in clean:
-                        p.text = clean
+                    
+                    if "[ERROR" not in res:
+                        clean = clean_markdown(res)
+                        # Pegar la narrativa final en el primer párrafo del bloque original
+                        doc.paragraphs[block[0]].text = clean
+                        # Borrar todos los demás párrafos del cuestionario para limpiar el documento
+                        for i in block[1:]:
+                            delete_paragraph(doc.paragraphs[i])
+                        st.info(f"✅ Bloque {b_idx+1} transformado:\n{clean[:100]}...")
+                    else:
+                        st.error(f"❌ Error de API en el bloque {b_idx+1}")
                         
-                my_bar.progress((i + 1) / total_p, text=f"Procesando {i+1}/{total_p}")
-                
-            # FINALIZACIÓN Y DESCARGA
-            my_bar.empty()
-            bio = BytesIO()
-            doc.save(bio)
-            st.success("✅ ¡Adaptación Narrativa Terminada!")
-            st.download_button("⬇️ Descargar eBook Narrativo", bio.getvalue(), "Mindful_Monsters_eBook_Adaptado.docx", key="dl_narrative")
+                    my_bar.progress((b_idx + 1) / total_blocks, text=f"Procesando bloques {b_idx+1}/{total_blocks}")
+                    
+                # Limpieza final rápida de palabras físicas aisladas
+                for p in doc.paragraphs:
+                    if any(k in p.text.lower() for k in ["espacio para dibujar", "recorta esta página", "pega aquí"]):
+                        delete_paragraph(p)
+                        
+                my_bar.empty()
+                bio = BytesIO()
+                doc.save(bio)
+                st.success(f"✅ ¡{total_blocks} bloques adaptados a narrativa!")
+                st.download_button("⬇️ Descargar eBook Narrativo", bio.getvalue(), "Mindful_Monsters_eBook_Adaptado.docx", key="dl_narrative")
 
 # ==============================================================================
 # MÓDULO 4: LIMPIADOR
