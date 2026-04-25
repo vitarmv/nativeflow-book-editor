@@ -366,22 +366,26 @@ elif "3." in selected_module:
 
     # --- PESTAÑA 2: EL NUEVO MOTOR DE ADAPTACIÓN TRANMEDIA ---
     with tab_ai:
-        st.info("La IA detectará ejercicios y los transformará en prosa narrativa. Los QR de reseñas se mantendrán intactos.")
+        st.info("La IA detectará ejercicios, cartas y cuestionarios, transformándolos en prosa narrativa. Los QR de Amazon están protegidos.")
         
-        default_kindle_prompt = """Actúa como un editor experto en adaptación digital (eBooks).
-        Tu objetivo es transformar este fragmento de un libro físico interactivo en prosa narrativa fluida.
-        REGLAS:
-        1. Convierte las líneas para rellenar (___) en preguntas retóricas o invitaciones a la reflexión ("Tómate un momento para pensar en...").
-        2. Si el texto pide acciones físicas (ej: "Dibuja la silueta", "Escribe en el espacio"), transfórmalo en ejercicios de visualización o meditación mental.
-        3. Mantén el tono empático, cálido y la voz original del autor.
-        4. Devuelve ÚNICAMENTE el texto adaptado, sin comentarios adicionales.
-        5. MUY IMPORTANTE: NO modifiques ni elimines los llamados a la acción para dejar reseñas en Amazon ni las menciones a escanear Códigos QR."""
+        default_kindle_prompt = """Actúa como un editor experto en adaptación digital (eBooks) de libros de psicología infantil.
+        Tu objetivo es transformar este fragmento de un libro físico interactivo en prosa narrativa fluida y reflexiva.
+        
+        REGLAS ESTRICTAS:
+        1. Convierte las líneas para rellenar (___), formularios o cartas ("Querido ___") en narrativa o invitaciones a la visualización. (Ej: "Tómate un momento para pensar qué le dirías a tu monstruo...").
+        2. Transforma las preguntas directas o viñetas de cuestionario en reflexiones suaves.
+        3. Si el texto pide acciones físicas (dibuja, escribe, completa), transfórmalo en un ejercicio mental o de respiración.
+        4. Mantén la voz cálida, empática y esperanzadora del autor ("Cognita Vital").
+        5. Devuelve ÚNICAMENTE el texto adaptado, sin comentarios, sin comillas extra, y SIN espacios en blanco (___).
+        6. NO modifiques llamadas a la acción para dejar reseñas en Amazon ni menciones a Códigos QR.
+        """
         
         with st.expander("⚙️ Configurar Prompt de Adaptación", expanded=False):
-            kindle_prompt = st.text_area("Instrucciones al Motor IA:", default_kindle_prompt, height=180)
+            kindle_prompt = st.text_area("Instrucciones al Motor IA:", default_kindle_prompt, height=250)
             
         uploaded_file_ai = st.file_uploader("Sube manuscrito (.docx)", type=["docx"], key="mod3_ai")
         
+        # AQUÍ COMIENZA LA ACCIÓN DEL BOTÓN
         if uploaded_file_ai and st.button("🚀 Iniciar Adaptación Profunda"):
             doc = Document(uploaded_file_ai)
             progress_text = "Analizando y adaptando el manuscrito..."
@@ -389,23 +393,49 @@ elif "3." in selected_module:
             
             total_p = len(doc.paragraphs)
             
-            # Lista actualizada: Elementos físicos puros que no requieren IA
-            keywords_to_delete = ["espacio para dibujar", "recorta esta página", "pega aquí"] 
-            
+            # AQUÍ ES DONDE ENTRA EL NUEVO BUCLE FOR "QUIRÚRGICO"
             for i, p in enumerate(doc.paragraphs):
                 text = p.text.strip()
-                if not text:
+                if len(text) < 3:
                     continue
                     
-                # 1. Limpieza Nuclear (Cosas que simplemente no van en el eBook)
-                if any(keyword in text.lower() for keyword in keywords_to_delete):
+                text_lower = text.lower()
+                
+                # 1. Limpieza Nuclear (Cosas físicas que simplemente se borran)
+                if any(keyword in text_lower for keyword in ["espacio para dibujar", "recorta esta página", "pega aquí"]):
                     delete_paragraph(p)
                     continue
                 
-                # 2. Detección Inteligente (Cosas que la IA debe reescribir)
-                # Omitimos explícitamente enviar a la IA cualquier párrafo que hable de QR o Amazon
-                if (re.search(r"([_.\-]){4,}", text) or any(k in text.lower() for k in ["ejercicio:", "dibuja", "escribe", "completa"])) and "qr" not in text.lower() and "amazon" not in text.lower():
-                    prompt_final = f"{kindle_prompt}\n\nTEXTO ORIGINAL:\n'{text}'"
+                # 2. Súper Detector QUIRÚRGICO (Evita falsos positivos)
+                is_exercise = False
+                
+                # Verificamos si el párrafo actual tiene guiones/líneas de relleno
+                current_has_blanks = bool(re.search(r"([_.\-]){3,}", text))
+                
+                # Verificamos si el SIGUIENTE párrafo tiene líneas de relleno (Look-ahead)
+                next_has_blanks = False
+                if i + 1 < total_p:
+                    next_has_blanks = bool(re.search(r"([_.\-]){3,}", doc.paragraphs[i+1].text))
+                
+                # REGLA A: Si tiene guiones, es un ejercicio seguro.
+                if current_has_blanks:
+                    is_exercise = True
+                    
+                # REGLA B: Si tiene dos puntos (:) o pregunta (¿?) PERO el siguiente renglón es de relleno.
+                elif (":" in text or "¿" in text) and next_has_blanks:
+                    is_exercise = True
+                    
+                # REGLA C: Palabras comando indiscutibles.
+                elif any(k in text_lower for k in ["ejercicio:", "dibuja", "escribe tu", "completa"]):
+                    is_exercise = True
+
+                # 3. Procesamiento con IA (Si pasó el filtro quirúrgico)
+                if is_exercise and "qr" not in text_lower and "amazon" not in text_lower:
+                    
+                    # Le enviamos a la IA el párrafo actual + el siguiente (si son líneas) para que entienda todo el bloque
+                    context = doc.paragraphs[i-1].text if i > 0 else ""
+                    prompt_final = f"{kindle_prompt}\n\nCONTEXTO PREVIO:\n'{context}'\n\nTEXTO A ADAPTAR:\n'{text}'"
+                    
                     res = call_api(prompt_final)
                     clean = clean_markdown(res)
                     if "[ERROR" not in clean:
@@ -413,11 +443,12 @@ elif "3." in selected_module:
                         
                 my_bar.progress((i + 1) / total_p, text=f"Procesando {i+1}/{total_p}")
                 
+            # FINALIZACIÓN Y DESCARGA
             my_bar.empty()
             bio = BytesIO()
             doc.save(bio)
             st.success("✅ ¡Adaptación Narrativa Terminada!")
-            st.download_button("⬇️ Descargar eBook Narrativo", bio.getvalue(), "Mindful_Monsters_eBook.docx", key="dl_narrative")
+            st.download_button("⬇️ Descargar eBook Narrativo", bio.getvalue(), "Mindful_Monsters_eBook_Adaptado.docx", key="dl_narrative")
 
 # ==============================================================================
 # MÓDULO 4: LIMPIADOR
