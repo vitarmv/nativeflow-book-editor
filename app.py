@@ -364,8 +364,9 @@ elif "3." in selected_module:
             bio = BytesIO(); doc.save(bio)
             st.download_button("⬇️ Descargar", bio.getvalue(), "Ebook_Limpio.docx")
 
-    # --- PESTAÑA 2: EL NUEVO MOTOR DE ADAPTACIÓN TRANMEDIA ---
-with tab_ai:
+    
+# --- PESTAÑA 2: EL NUEVO MOTOR DE ADAPTACIÓN TRANMEDIA ---
+    with tab_ai:
         st.info("La IA agrupará cuestionarios y cartas enteras en bloques para no perder el contexto, transformándolos en prosa narrativa fluida.")
         
         default_kindle_prompt = """Actúa como un editor experto en adaptación digital (eBooks) de libros de psicología infantil.
